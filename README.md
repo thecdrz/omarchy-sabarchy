@@ -10,9 +10,9 @@ compact theme-aware panel.
 
 ![Active Omarchy 4 download with clear history](docs/screenshots/00-gruvbox-clean-download.png)
 
-### Failure recovery
+### Active queue and recent history
 
-![Failure and retry state using Ristretto](docs/screenshots/03-ristretto-failure-retry.png)
+![Active download and recent history using Ristretto](docs/screenshots/variants/ristretto-active-history.png)
 
 ## Features
 
