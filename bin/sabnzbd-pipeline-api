@@ -1,0 +1,271 @@
+#!/usr/bin/env python3
+"""Small local bridge between the Omarchy widget and SABnzbd's HTTP API."""
+
+from __future__ import annotations
+
+import argparse
+import configparser
+import json
+import os
+import ssl
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+from pathlib import Path
+from typing import Any
+
+
+DEFAULT_CONFIGS = (
+    Path.home() / ".sabnzbd" / "sabnzbd.ini",
+    Path.home() / ".config" / "sabnzbd" / "sabnzbd.ini",
+)
+
+
+def emit(payload: dict[str, Any], code: int = 0) -> None:
+    print(json.dumps(payload, separators=(",", ":")))
+    raise SystemExit(code)
+
+
+def find_config(explicit: str) -> Path:
+    if explicit:
+        path = Path(explicit).expanduser()
+        if path.is_file():
+            return path
+        raise FileNotFoundError(f"SABnzbd config not found: {path}")
+    for path in DEFAULT_CONFIGS:
+        if path.is_file():
+            return path
+    raise FileNotFoundError("Start SABnzbd once to create ~/.sabnzbd/sabnzbd.ini")
+
+
+def connection(path: Path) -> tuple[str, str]:
+    config = configparser.ConfigParser(interpolation=None)
+    contents = path.read_text(encoding="utf-8")
+    # SABnzbd keeps format metadata before its first INI section.
+    config.read_string("[sabnzbd_metadata]\n" + contents)
+    misc = config["misc"]
+    port = misc.getint("port", fallback=8080)
+    scheme = "https" if misc.getboolean("enable_https", fallback=False) else "http"
+    api_key = misc.get("api_key", fallback="").strip()
+    if not api_key:
+        raise ValueError("SABnzbd API key is missing; check Config > General")
+    return f"{scheme}://127.0.0.1:{port}", api_key
+
+
+def api(base_url: str, api_key: str, **params: Any) -> dict[str, Any]:
+    query = {"output": "json", "apikey": api_key}
+    query.update({key: str(value) for key, value in params.items()})
+    url = f"{base_url}/api?{urllib.parse.urlencode(query)}"
+    request = urllib.request.Request(url, headers={"Accept": "application/json"})
+    context = ssl._create_unverified_context() if base_url.startswith("https://127.0.0.1:") else None
+    with urllib.request.urlopen(request, timeout=3, context=context) as response:
+        return json.load(response)
+
+
+def number(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def progress(slot: dict[str, Any]) -> float:
+    if "percentage" in slot:
+        return max(0.0, min(100.0, number(slot.get("percentage"))))
+    total = number(slot.get("mb"))
+    left = number(slot.get("mbleft"))
+    return max(0.0, min(100.0, (1.0 - left / total) * 100.0)) if total > 0 else 0.0
+
+
+def job(slot: dict[str, Any], *, done: bool = False) -> dict[str, Any]:
+    status = str(slot.get("status") or "Unknown")
+    return {
+        "id": str(slot.get("nzo_id") or ""),
+        "name": str(slot.get("name") or slot.get("filename") or "Untitled"),
+        "status": status,
+        "progress": 100.0 if status == "Completed" else round(progress(slot), 2),
+        "category": str(slot.get("cat") or slot.get("category") or ""),
+        "size": str(slot.get("size") or ""),
+        "sizeleft": str(slot.get("sizeleft") or ""),
+        "timeleft": str(slot.get("timeleft") or ""),
+        "completed": str(slot.get("completed_nice") or ""),
+        "failure": str(slot.get("fail_message") or slot.get("script_line") or ""),
+        "labels": list(slot.get("labels") or []),
+        "priority": str(slot.get("priority") or ""),
+        "retry_count": int(number(slot.get("retry"))),
+        "done": done,
+        "failed": status == "Failed",
+    }
+
+
+def snapshot(base_url: str, api_key: str, queue_limit: int, history_limit: int) -> dict[str, Any]:
+    queue_data = api(base_url, api_key, mode="queue", start=0, limit=queue_limit).get("queue", {})
+    history_data = api(base_url, api_key, mode="history", start=0, limit=history_limit).get("history", {})
+    queue_jobs = [job(slot) for slot in queue_data.get("slots", [])]
+    history_jobs = [job(slot, done=slot.get("status") in {"Completed", "Failed"}) for slot in history_data.get("slots", [])]
+
+    verify_statuses = {"QuickCheck", "Verifying", "Repairing", "Fetching"}
+    unpack_statuses = {"Extracting", "Moving", "Running", "Queued"}
+    verify = [item for item in history_jobs if item["status"] in verify_statuses]
+    unpack = [item for item in history_jobs if item["status"] in unpack_statuses]
+    recent = [item for item in history_jobs if item["status"] in {"Completed", "Failed"}]
+    failed = [item for item in history_jobs if item["status"] == "Failed"]
+    completed = [item for item in history_jobs if item["status"] == "Completed"]
+
+    raw_speed = str(queue_data.get("speed") or "0 B").strip()
+    if raw_speed.replace(".", "", 1).isdigit():
+        raw_speed += " B"
+    speed = raw_speed if raw_speed.lower().endswith("/s") else f"{raw_speed}/s"
+    disk_values = [number(queue_data.get("diskspace1"), -1), number(queue_data.get("diskspace2"), -1)]
+    available_values = [value for value in disk_values if value >= 0]
+    disk_free_gb = min(available_values) if available_values else -1
+
+    return {
+        "ok": True,
+        "state": "ready",
+        "web_url": base_url,
+        "queue": {
+            "status": str(queue_data.get("status") or "Idle"),
+            "paused": bool(queue_data.get("paused", False)),
+            "speed": speed,
+            "kbpersec": number(queue_data.get("kbpersec")),
+            "timeleft": str(queue_data.get("timeleft") or "0:00:00"),
+            "sizeleft": str(queue_data.get("sizeleft") or "0 B"),
+            "jobs": queue_jobs,
+        },
+        "disk": {
+            "free_gb": round(disk_free_gb, 1),
+            "free": str(queue_data.get("diskspace2_norm") or queue_data.get("diskspace1_norm") or "Unknown"),
+            "low": 0 <= disk_free_gb < 20,
+        },
+        "stages": {
+            "download": queue_jobs,
+            "verify": verify,
+            "unpack": unpack,
+            "recent": recent,
+        },
+        "counts": {
+            "download": len(queue_jobs),
+            "verify": len(verify),
+            "unpack": len(unpack),
+            "recent": len(recent),
+            "failed": len(failed),
+            "completed": len(completed),
+            "queue_total": int(number(queue_data.get("noofslots_total", queue_data.get("noofslots", len(queue_jobs))))),
+            "history_total": int(number(history_data.get("noofslots", len(history_jobs)))),
+        },
+    }
+
+
+def demo_snapshot(state: str, queue_limit: int = 100, history_limit: int = 50) -> dict[str, Any]:
+    if state == "not-configured":
+        return {"ok": False, "state": "not-configured", "message": "Start SABnzbd once to create ~/.sabnzbd/sabnzbd.ini"}
+    if state == "offline":
+        return {"ok": False, "state": "offline", "message": "SABnzbd is not running"}
+    jobs = {
+        "downloading": [
+            {"id": "demo-1", "name": "omarchy-4.0.0.iso", "status": "Downloading", "progress": 63.0, "category": "omarchy", "size": "5.8 GB", "sizeleft": "2.1 GB", "timeleft": "0:03:42", "completed": "", "done": False, "failed": False}
+        ],
+        "processing": [
+            {"id": "demo-2", "name": "omarchy-4.0.0.iso", "status": "Verifying", "progress": 82.0, "category": "omarchy", "size": "5.8 GB", "sizeleft": "", "timeleft": "0:02:11", "completed": "", "done": False, "failed": False}
+        ],
+        "multiple": [
+            {"id": "demo-3", "name": "omarchy-4.0.0.iso", "status": "Downloading", "progress": 41.0, "category": "omarchy", "size": "5.8 GB", "sizeleft": "3.4 GB", "timeleft": "0:06:09", "completed": "", "done": False, "failed": False},
+            {"id": "demo-4", "name": "Frankenstein.1910.Library-of-Congress.mp4", "status": "Queued", "progress": 0.0, "category": "public-domain", "size": "248 MB", "sizeleft": "248 MB", "timeleft": "", "completed": "", "done": False, "failed": False},
+        ],
+        "failed": [
+            {"id": "demo-5", "name": "omarchy-4.0.0.iso", "status": "Failed", "progress": 71.0, "category": "omarchy", "size": "5.8 GB", "sizeleft": "1.7 GB", "timeleft": "", "completed": "", "done": False, "failed": True}
+        ],
+    }
+    if state == "large":
+        active = []
+        for index in range(275):
+            status = "Downloading" if index == 0 else ("Paused" if index % 11 == 0 else "Queued")
+            active.append({"id": f"demo-large-{index}", "name": f"Linux.Archive.Collection.Part.{index + 1:03d}.A.Very.Long.Release.Name", "status": status, "progress": 58.0 if index == 0 else 0.0, "category": "archives", "size": "8.4 GB", "sizeleft": "3.5 GB" if index == 0 else "8.4 GB", "timeleft": "0:11:23" if index == 0 else "", "completed": "", "failure": "", "labels": [], "priority": "Normal", "retry_count": 0, "done": False, "failed": False})
+    else:
+        active = jobs.get(state, jobs["downloading"])
+    active_total = len(active)
+    if state == "large":
+        active = active[:queue_limit]
+    download = [item for item in active if item["status"] in {"Downloading", "Queued", "Paused", "Failed"}]
+    verify = [item for item in active if item["status"] in {"Verifying", "Repairing"}]
+    recent = [
+        {"id": "recent-1", "name": "Frankenstein.1910.Library-of-Congress.mp4", "status": "Completed", "progress": 100.0, "category": "public-domain", "size": "248 MB", "sizeleft": "", "timeleft": "", "completed": "an hour ago", "done": True, "failed": False},
+        {"id": "recent-2", "name": "Nosferatu.1922.Public-Domain.1080p.mp4", "status": "Completed", "progress": 100.0, "category": "public-domain", "size": "1.8 GB", "sizeleft": "", "timeleft": "", "completed": "yesterday", "done": True, "failed": False},
+    ]
+    if state in {"failed", "large"}:
+        recent.insert(0, {"id": "recent-failed", "name": "omarchy-4.0.0.iso", "status": "Failed", "progress": 71.0, "category": "omarchy", "size": "5.8 GB", "sizeleft": "", "timeleft": "", "completed": "12 minutes ago", "failure": "Repair failed, not enough repair blocks (142 short)", "labels": ["INCOMPLETE"], "priority": "Normal", "retry_count": 1, "done": True, "failed": True})
+    history_total = len(recent)
+    if state == "large":
+        for index in range(3, 123):
+            failed_item = index % 9 == 0
+            recent.append({"id": f"recent-{index}", "name": f"Completed.Archive.Release.{index:03d}", "status": "Failed" if failed_item else "Completed", "progress": 100.0, "category": "archives", "size": "8.4 GB", "sizeleft": "", "timeleft": "", "completed": f"{index} hours ago", "failure": "Missing articles prevented repair" if failed_item else "", "labels": ["INCOMPLETE"] if failed_item else [], "priority": "Normal", "retry_count": 0, "done": True, "failed": failed_item})
+        history_total = len(recent)
+        recent = recent[:history_limit]
+    paused = state == "paused"
+    if paused:
+        download = [{**jobs["downloading"][0], "status": "Paused"}]
+    all_active = download + verify
+    return {
+        "ok": True, "state": "demo", "web_url": "http://127.0.0.1:8080",
+        "queue": {"status": "Paused" if paused else "Downloading", "paused": paused, "speed": "94.7 MB/s", "kbpersec": 96972.8, "timeleft": "0:18:42", "sizeleft": "25.3 GB", "jobs": download},
+        "stages": {"download": download, "verify": verify, "unpack": [], "recent": recent},
+        "disk": {"free_gb": 12.6 if state == "failed" else 184.2, "free": "12.6 GB" if state == "failed" else "184.2 GB", "low": state == "failed"},
+        "counts": {"download": len(download), "verify": len(verify), "unpack": 0, "recent": len(recent), "failed": sum(1 for item in recent if item["failed"]), "completed": sum(1 for item in recent if not item["failed"]), "queue_total": active_total if state == "large" else len(active), "history_total": history_total},
+    }
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("action", choices=("snapshot", "pause", "resume", "auth", "retry", "clear_completed", "job_pause", "job_resume"))
+    parser.add_argument("--config", default="")
+    parser.add_argument("--demo", choices=("downloading", "processing", "multiple", "paused", "failed", "large", "not-configured", "offline"), default="")
+    parser.add_argument("--id", default="")
+    parser.add_argument("--queue-limit", type=int, default=100)
+    parser.add_argument("--history-limit", type=int, default=50)
+    args = parser.parse_args()
+
+    try:
+        if args.action == "snapshot" and args.demo:
+            emit(demo_snapshot(args.demo, max(20, min(args.queue_limit, 1000)), max(20, min(args.history_limit, 1000))))
+        config_path = find_config(args.config)
+        base_url, api_key = connection(config_path)
+        if args.action == "snapshot":
+            emit(snapshot(base_url, api_key, max(20, min(args.queue_limit, 1000)), max(20, min(args.history_limit, 1000))))
+        if args.action == "auth":
+            emit({"ok": True, "web_url": base_url})
+        if args.action == "retry":
+            if not args.id:
+                raise ValueError("Retry requires a SABnzbd job id")
+            result = api(base_url, api_key, mode="retry", value=args.id)
+            succeeded = bool(result.get("status", False))
+            emit({"ok": succeeded, "action": "retry", "id": args.id}, 0 if succeeded else 6)
+        if args.action == "clear_completed":
+            result = api(base_url, api_key, mode="history", name="delete", value="completed")
+            succeeded = bool(result.get("status", False))
+            emit({"ok": succeeded, "action": "clear_completed"}, 0 if succeeded else 6)
+        if args.action in {"job_pause", "job_resume"}:
+            if not args.id:
+                raise ValueError("Job action requires a SABnzbd job id")
+            name = "pause" if args.action == "job_pause" else "resume"
+            result = api(base_url, api_key, mode="queue", name=name, value=args.id)
+            succeeded = bool(result.get("status", False))
+            emit({"ok": succeeded, "action": args.action, "id": args.id}, 0 if succeeded else 6)
+        result = api(base_url, api_key, mode=args.action)
+        succeeded = bool(result.get("status", True))
+        emit({"ok": succeeded, "action": args.action}, 0 if succeeded else 6)
+    except FileNotFoundError as error:
+        emit({"ok": False, "state": "not-configured", "message": str(error)}, 2)
+    except urllib.error.HTTPError as error:
+        emit({"ok": False, "state": "api-error", "message": f"SABnzbd API error: HTTP {error.code}"}, 5)
+    except (ConnectionError, TimeoutError, urllib.error.URLError):
+        emit({"ok": False, "state": "offline", "message": "SABnzbd is not running"}, 3)
+    except (configparser.Error, KeyError, ValueError) as error:
+        emit({"ok": False, "state": "configuration-error", "message": str(error)}, 4)
+    except json.JSONDecodeError as error:
+        emit({"ok": False, "state": "api-error", "message": f"SABnzbd API error: {error}"}, 5)
+
+
+if __name__ == "__main__":
+    main()

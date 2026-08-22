@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 520">
+  <rect width="1200" height="520" rx="32" fill="#17151f"/>
+  <text x="60" y="70" fill="#f2edf4" font-family="sans-serif" font-size="34" font-weight="700">SABarchy</text>
+  <text x="60" y="108" fill="#8f8798" font-family="sans-serif" font-size="18">THE VISUAL SABNZBD DASHBOARD FOR OMARCHY</text>
+  <g transform="translate(60 145)">
+    <rect width="320" height="280" rx="22" fill="#211e2a" stroke="#3a3445" stroke-width="2"/>
+    <g transform="translate(96 42) scale(2)">
+      <g fill="none" stroke="#f05ac9" stroke-width="7" stroke-linecap="square" stroke-linejoin="miter"><path d="M49 12H21L14 20l7 8h22l7 8-7 8H15"/><path d="M32 43v13m-8-8 8 8 8-8"/></g>
+    </g>
+    <text x="160" y="228" text-anchor="middle" fill="#f2edf4" font-family="sans-serif" font-size="22" font-weight="700">01 · SIGNAL S</text>
+    <text x="160" y="255" text-anchor="middle" fill="#8f8798" font-family="sans-serif" font-size="15">queue path + download</text>
+  </g>
+  <g transform="translate(440 145)">
+    <rect width="320" height="280" rx="22" fill="#211e2a" stroke="#3a3445" stroke-width="2"/>
+    <g transform="translate(96 42) scale(2)" fill="#f05ac9"><path d="M12 10h40v9H12zM21 25h31v9H21zM12 40h28v9H12z"/><path d="M42 39h10v10h7L47 61 35 49h7z"/></g>
+    <text x="160" y="228" text-anchor="middle" fill="#f2edf4" font-family="sans-serif" font-size="22" font-weight="700">02 · QUEUE STACK</text>
+    <text x="160" y="255" text-anchor="middle" fill="#8f8798" font-family="sans-serif" font-size="15">boldest at tiny sizes</text>
+  </g>
+  <g transform="translate(820 145)">
+    <rect width="320" height="280" rx="22" fill="#211e2a" stroke="#3a3445" stroke-width="2"/>
+    <g transform="translate(96 42) scale(2)"><path fill="none" stroke="#f05ac9" stroke-width="7" stroke-linecap="square" stroke-linejoin="miter" d="M50 12H22L12 22l10 10h20l10 10-10 10H14M32 22v34m-9-9 9 9 9-9"/></g>
+    <text x="160" y="228" text-anchor="middle" fill="#f2edf4" font-family="sans-serif" font-size="22" font-weight="700">03 · SAB GLYPH</text>
+    <text x="160" y="255" text-anchor="middle" fill="#8f8798" font-family="sans-serif" font-size="15">most monogram-like</text>
+  </g>
+  <text x="600" y="478" text-anchor="middle" fill="#8f8798" font-family="sans-serif" font-size="16">Each mark is single-colour, themeable, and designed to survive at 18 px.</text>
+</svg>
