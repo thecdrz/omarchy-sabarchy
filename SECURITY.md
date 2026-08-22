@@ -6,3 +6,6 @@ advisory feature rather than a public issue.
 
 The bundled helper reads SABnzbd configuration locally and accepts only
 loopback API endpoints. It does not transmit credentials to remote hosts.
+
+All SABnzbd-provided text is rendered as plain text. Job metadata is never
+interpreted as rich text or used to load inline resources.

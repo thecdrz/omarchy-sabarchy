@@ -213,7 +213,7 @@ BarWidget {
     if (root.paused)
       return "SABnzbd · Paused"
     if (root.activeCount > 0)
-      return "SABnzbd · " + root.activeCount + (root.activeCount === 1 ? " job · " : " jobs · ") + root.speedText
+      return "SABnzbd · " + root.activeCount + (root.activeCount === 1 ? " active job" : " active jobs")
     return "SABnzbd · Idle"
   }
 
@@ -257,7 +257,7 @@ BarWidget {
         anchors.verticalCenter: parent.verticalCenter
         iconColor: button.active && button.useActiveColor ? button.activeColor : button.foreground
       }
-      Text {
+      Text { textFormat: Text.PlainText;
         visible: root.showSpeed && !root.vertical
         anchors.verticalCenter: parent.verticalCenter
         text: root.speedText

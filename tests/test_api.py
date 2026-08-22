@@ -199,6 +199,45 @@ class HelperTests(unittest.TestCase):
         self.assertTrue(ApiHandler.queries)
         self.assertTrue(all(path == "/sabnzbd/api" for path, _query in ApiHandler.queries))
 
+    def test_snapshot_preserves_markup_like_metadata_for_plain_text_rendering(self):
+        markup = '<img src="probe.png">'
+        ApiHandler.queue = {
+            "status": "Downloading",
+            "slots": [
+                {
+                    "nzo_id": "queue-markup",
+                    "name": markup,
+                    "status": "Downloading",
+                    "cat": markup,
+                    "labels": [markup],
+                }
+            ],
+        }
+        ApiHandler.recent_history = {
+            "slots": [
+                {
+                    "nzo_id": "history-markup",
+                    "name": markup,
+                    "status": "Failed",
+                    "cat": markup,
+                    "fail_message": markup,
+                    "labels": [markup],
+                }
+            ]
+        }
+
+        result = self.run_snapshot()
+
+        self.assertEqual(result.returncode, 0)
+        payload = json.loads(result.stdout)
+        active = payload["stages"]["download"][0]
+        failed = payload["stages"]["recent"][0]
+        for item in (active, failed):
+            self.assertEqual(item["name"], markup)
+            self.assertEqual(item["category"], markup)
+            self.assertEqual(item["labels"], [markup])
+        self.assertEqual(failed["failure"], markup)
+
     def test_global_pause_and_resume_use_documented_modes(self):
         for action in ("pause", "resume"):
             with self.subTest(action=action):
