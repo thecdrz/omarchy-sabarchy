@@ -50,7 +50,11 @@ def connection(path: Path) -> tuple[str, str]:
     api_key = misc.get("api_key", fallback="").strip()
     if not api_key:
         raise ValueError("SABnzbd API key is missing; check Config > General")
-    return f"{scheme}://127.0.0.1:{port}", api_key
+    url_base = misc.get("url_base", fallback="").strip().strip("/")
+    base_url = f"{scheme}://127.0.0.1:{port}"
+    if url_base:
+        base_url += f"/{url_base}"
+    return base_url, api_key
 
 
 def api(base_url: str, api_key: str, **params: Any) -> dict[str, Any]:
@@ -101,14 +105,22 @@ def job(slot: dict[str, Any], *, done: bool = False) -> dict[str, Any]:
 
 def snapshot(base_url: str, api_key: str, queue_limit: int, history_limit: int) -> dict[str, Any]:
     queue_data = api(base_url, api_key, mode="queue", start=0, limit=queue_limit).get("queue", {})
-    history_data = api(base_url, api_key, mode="history", start=0, limit=history_limit).get("history", {})
+    processing_statuses = "QuickCheck,Verifying,Repairing,Fetching,Extracting,Moving,Running,Queued"
+    recent_statuses = "Completed,Failed"
+    processing_data = api(
+        base_url, api_key, mode="history", start=0, limit=1000, status=processing_statuses
+    ).get("history", {})
+    history_data = api(
+        base_url, api_key, mode="history", start=0, limit=history_limit, status=recent_statuses
+    ).get("history", {})
     queue_jobs = [job(slot) for slot in queue_data.get("slots", [])]
+    processing_jobs = [job(slot) for slot in processing_data.get("slots", [])]
     history_jobs = [job(slot, done=slot.get("status") in {"Completed", "Failed"}) for slot in history_data.get("slots", [])]
 
     verify_statuses = {"QuickCheck", "Verifying", "Repairing", "Fetching"}
     unpack_statuses = {"Extracting", "Moving", "Running", "Queued"}
-    verify = [item for item in history_jobs if item["status"] in verify_statuses]
-    unpack = [item for item in history_jobs if item["status"] in unpack_statuses]
+    verify = [item for item in processing_jobs if item["status"] in verify_statuses]
+    unpack = [item for item in processing_jobs if item["status"] in unpack_statuses]
     recent = [item for item in history_jobs if item["status"] in {"Completed", "Failed"}]
     failed = [item for item in history_jobs if item["status"] == "Failed"]
     completed = [item for item in history_jobs if item["status"] == "Completed"]
@@ -120,6 +132,10 @@ def snapshot(base_url: str, api_key: str, queue_limit: int, history_limit: int) 
     disk_values = [number(queue_data.get("diskspace1"), -1), number(queue_data.get("diskspace2"), -1)]
     available_values = [value for value in disk_values if value >= 0]
     disk_free_gb = min(available_values) if available_values else -1
+
+    queue_total = int(number(queue_data.get("noofslots_total", queue_data.get("noofslots", len(queue_jobs)))))
+    processing_total = int(number(processing_data.get("noofslots", len(processing_jobs))))
+    history_total = int(number(history_data.get("noofslots", len(history_jobs))))
 
     return {
         "ok": True,
@@ -152,8 +168,9 @@ def snapshot(base_url: str, api_key: str, queue_limit: int, history_limit: int) 
             "recent": len(recent),
             "failed": len(failed),
             "completed": len(completed),
-            "queue_total": int(number(queue_data.get("noofslots_total", queue_data.get("noofslots", len(queue_jobs))))),
-            "history_total": int(number(history_data.get("noofslots", len(history_jobs)))),
+            "active_total": queue_total + processing_total,
+            "queue_total": queue_total,
+            "history_total": history_total,
         },
     }
 
@@ -208,13 +225,13 @@ def demo_snapshot(state: str, queue_limit: int = 100, history_limit: int = 50) -
     paused = state == "paused"
     if paused:
         download = [{**jobs["downloading"][0], "status": "Paused"}]
-    all_active = download + verify
+    displayed_active_total = active_total if state == "large" else len(download) + len(verify)
     return {
         "ok": True, "state": "demo", "web_url": "http://127.0.0.1:8080",
         "queue": {"status": "Paused" if paused else "Downloading", "paused": paused, "speed": "94.7 MB/s", "kbpersec": 96972.8, "timeleft": "0:18:42", "sizeleft": "25.3 GB", "jobs": download},
         "stages": {"download": download, "verify": verify, "unpack": [], "recent": recent},
         "disk": {"free_gb": 12.6 if state == "failed" else 184.2, "free": "12.6 GB" if state == "failed" else "184.2 GB", "low": state == "failed"},
-        "counts": {"download": len(download), "verify": len(verify), "unpack": 0, "recent": len(recent), "failed": sum(1 for item in recent if item["failed"]), "completed": sum(1 for item in recent if not item["failed"]), "queue_total": active_total if state == "large" else len(active), "history_total": history_total},
+        "counts": {"download": len(download), "verify": len(verify), "unpack": 0, "recent": len(recent), "failed": sum(1 for item in recent if item["failed"]), "completed": sum(1 for item in recent if not item["failed"]), "active_total": displayed_active_total, "queue_total": active_total if state == "large" else len(download), "history_total": history_total},
     }
 
 

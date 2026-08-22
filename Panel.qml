@@ -40,11 +40,22 @@ Panel {
   })
   readonly property bool forceCompact: pipeline ? Boolean(pipeline.setting("_demoCompact", false)) : false
   readonly property bool compact: forceCompact || (panel.width > 0 && panel.width < Style.space(760))
-  readonly property int queueTotal: pipelineData && pipelineData.counts ? Number(pipelineData.counts.queue_total || activeJobs.length) : activeJobs.length
+  readonly property int queueTotal: pipelineData && pipelineData.counts ? Number(pipelineData.counts.active_total !== undefined ? pipelineData.counts.active_total : activeJobs.length) : activeJobs.length
   readonly property int historyTotal: pipelineData && pipelineData.counts ? Number(pipelineData.counts.history_total || recentJobs.length) : recentJobs.length
   readonly property int issueCount: pipelineData && pipelineData.counts ? Number(pipelineData.counts.failed || 0) : 0
+  readonly property int completedCount: pipelineData && pipelineData.counts ? Number(pipelineData.counts.completed || 0) : 0
   readonly property bool diskLow: pipelineData && pipelineData.disk ? pipelineData.disk.low === true : false
   readonly property bool staleMode: pipeline ? pipeline.stale || Boolean(pipeline.setting("_demoStale", false)) : false
+  readonly property bool actionable: connected && !staleMode
+
+  onActiveJobsChanged: {
+    activeIndex = Math.max(0, Math.min(activeIndex, activeJobs.length - 1))
+    if (activeJobs.length === 0 && filteredRecentJobs.length > 0) focusSection = "history"
+  }
+  onFilteredRecentJobsChanged: {
+    historyIndex = Math.max(0, Math.min(historyIndex, filteredRecentJobs.length - 1))
+    if (filteredRecentJobs.length === 0 && activeJobs.length > 0) focusSection = "active"
+  }
 
   function lastUpdatedLabel() {
     if (!pipeline || !pipeline.lastSuccessMs) return ""
@@ -74,9 +85,11 @@ Panel {
 
   function activateSelection() {
     if (focusSection === "active" && activeJobs.length > 0) {
+      activeIndex = Math.max(0, Math.min(activeIndex, activeJobs.length - 1))
       var id = String(activeJobs[activeIndex].id)
       expandedJobId = expandedJobId === id ? "" : id
     } else if (filteredRecentJobs.length > 0) {
+      historyIndex = Math.max(0, Math.min(historyIndex, filteredRecentJobs.length - 1))
       var historyId = String(filteredRecentJobs[historyIndex].id)
       expandedHistoryId = expandedHistoryId === historyId ? "" : historyId
     }
@@ -134,7 +147,7 @@ Panel {
     open: root.opened
     centerOnBar: true
     focusTarget: keyCatcher
-    contentWidth: panel.fittedContentWidth(Style.space(root.forceCompact ? 620 : 960))
+    contentWidth: panel.fittedContentWidth(Style.space(root.forceCompact ? 620 : ((!root.connected && !root.staleMode) ? 760 : 960)))
     contentHeight: panel.fittedContentHeight(contentColumn.implicitHeight)
 
     PanelKeyCatcher {
@@ -150,12 +163,12 @@ Panel {
       onDeleteRequested: { root.expandedJobId = ""; root.expandedHistoryId = "" }
       onTextKey: function(text) {
         if (text === "r") { if (root.pipeline) root.pipeline.refresh() }
-        else if (text === "R" && root.focusSection === "history" && root.historyIndex < root.recentJobs.length && root.recentJobs[root.historyIndex].failed && root.pipeline) { root.pipeline.retryJob(root.recentJobs[root.historyIndex].id) }
-        else if (text === "p" && root.focusSection === "active" && root.activeJobs.length > 0 && root.pipeline) {
+        else if (text === "R" && root.actionable && root.focusSection === "history" && root.historyIndex >= 0 && root.historyIndex < root.filteredRecentJobs.length && root.filteredRecentJobs[root.historyIndex].failed && root.pipeline) { root.pipeline.retryJob(root.filteredRecentJobs[root.historyIndex].id) }
+        else if (text === "p" && root.actionable && root.focusSection === "active" && root.activeIndex >= 0 && root.activeIndex < root.activeJobs.length && root.pipeline) {
           var selected = root.activeJobs[root.activeIndex]
           root.pipeline.runJobAction(String(selected.status).toLowerCase() === "paused" ? "job_resume" : "job_pause", selected.id)
         }
-        else if (text === "P") { if (root.connected && root.pipeline) root.pipeline.runAction(root.pipeline.paused ? "resume" : "pause") }
+        else if (text === "P") { if (root.actionable && root.pipeline) root.pipeline.runAction(root.pipeline.paused ? "resume" : "pause") }
         else if ((text === "o" || text === "O") && root.pipelineData.web_url) Qt.openUrlExternally(String(root.pipelineData.web_url))
       }
 
@@ -184,6 +197,7 @@ Panel {
                 Text { anchors.verticalCenter: parent.verticalCenter; text: "SABNZBD DASHBOARD"; color: Qt.darker(root.contentForeground, 1.55); font.family: root.contentFontFamily; font.pixelSize: Style.font.caption; font.bold: true; font.letterSpacing: 1 }
               }
               Text {
+                visible: root.connected || root.staleMode
                 width: parent.width
                 text: root.connected
                   ? ((root.staleMode ? "STALE  ·  LAST UPDATE " + root.lastUpdatedLabel() : (root.pipeline.paused ? "PAUSED" : String(root.pipelineData.queue.status || "IDLE").toUpperCase())) + "  ·  " + String(root.pipelineData.queue.speed || "0 B/s") + "  ·  " + String(root.pipelineData.queue.sizeleft || "0 B") + " REMAINING")
@@ -196,13 +210,14 @@ Panel {
             }
             Row {
               id: controls
+              visible: root.connected || root.staleMode
               spacing: Style.space(8)
               Rectangle {
                 width: pauseLabel.implicitWidth + Style.space(24); height: Style.space(34); radius: Style.cornerRadius
                 color: pauseMouse.containsMouse ? Style.hoverFillFor(root.contentForeground, Color.accent) : Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.05)
                 border.width: Style.spacing.hairline; border.color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.18)
                 Text { id: pauseLabel; anchors.centerIn: parent; text: root.compact ? (root.pipeline && root.pipeline.paused ? "󰐊" : "󰏤") : (root.pipeline && root.pipeline.paused ? "󰐊  RESUME" : "󰏤  PAUSE"); color: root.contentForeground; font.family: root.contentFontFamily; font.pixelSize: Style.font.caption; font.bold: true }
-                MouseArea { id: pauseMouse; anchors.fill: parent; enabled: root.connected; hoverEnabled: true; cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor; onClicked: root.pipeline.runAction(root.pipeline.paused ? "resume" : "pause") }
+                MouseArea { id: pauseMouse; anchors.fill: parent; enabled: root.actionable; hoverEnabled: true; cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor; onClicked: root.pipeline.runAction(root.pipeline.paused ? "resume" : "pause") }
               }
               Rectangle {
                 width: openLabel.implicitWidth + Style.space(24); height: Style.space(34); radius: Style.cornerRadius
@@ -218,21 +233,21 @@ Panel {
 
           Rectangle {
             visible: !root.connected && !root.staleMode
-            width: parent.width; height: Style.space(164); radius: Style.cornerRadius
+            width: parent.width; height: Style.space(132); radius: Style.cornerRadius
             color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.035)
             border.width: Style.spacing.hairline; border.color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.14)
             Row {
               anchors.fill: parent; anchors.margins: Style.space(24); spacing: Style.space(22)
               Rectangle {
-                anchors.verticalCenter: parent.verticalCenter; width: Style.space(64); height: width; radius: width / 2
+                anchors.verticalCenter: parent.verticalCenter; width: Style.space(56); height: width; radius: width / 2
                 color: Qt.rgba(Color.urgent.r, Color.urgent.g, Color.urgent.b, 0.1)
-                Text { anchors.centerIn: parent; text: "󰑪"; color: Color.urgent; font.family: root.contentFontFamily; font.pixelSize: Style.font.display }
+                Text { anchors.centerIn: parent; text: "󰑪"; color: Color.urgent; font.family: root.contentFontFamily; font.pixelSize: Style.font.title }
               }
               Column {
                 anchors.verticalCenter: parent.verticalCenter; width: parent.width - retrySetup.width - Style.space(118); spacing: Style.space(8)
                 Text { width: parent.width; text: root.setupTitle(); color: root.contentForeground; font.family: root.contentFontFamily; font.pixelSize: Style.font.title; font.bold: true; font.letterSpacing: 1 }
                 Text { width: parent.width; text: root.setupMessage(); wrapMode: Text.WordWrap; maximumLineCount: 2; elide: Text.ElideRight; color: Qt.darker(root.contentForeground, 1.35); font.family: root.contentFontFamily; font.pixelSize: Style.font.bodySmall }
-                Text { width: parent.width; text: "Default config: ~/.sabnzbd/sabnzbd.ini  ·  Custom paths are available in widget settings"; elide: Text.ElideRight; color: Qt.darker(root.contentForeground, 1.6); font.family: root.contentFontFamily; font.pixelSize: Style.font.caption }
+                Text { width: parent.width; text: "Default config  ~/.sabnzbd/sabnzbd.ini  ·  Change it in widget settings"; elide: Text.ElideRight; color: Qt.darker(root.contentForeground, 1.6); font.family: root.contentFontFamily; font.pixelSize: Style.font.caption }
               }
               Rectangle {
                 id: retrySetup; anchors.verticalCenter: parent.verticalCenter; width: root.compact ? Style.space(72) : Style.space(118); height: Style.space(36); radius: Style.cornerRadius
@@ -369,7 +384,7 @@ Panel {
                         color: jobActionMouse.containsMouse ? Qt.rgba(activeCard.stateColor.r, activeCard.stateColor.g, activeCard.stateColor.b, 0.18) : Qt.rgba(activeCard.stateColor.r, activeCard.stateColor.g, activeCard.stateColor.b, 0.08)
                         border.width: Style.spacing.hairline; border.color: activeCard.stateColor
                         Text { anchors.centerIn: parent; text: root.pipeline && root.pipeline.actionJobId === activeCard.modelData.id ? String(root.pipeline.actionStatus).toUpperCase() : (jobAction.pausedJob ? "󰐊  RESUME" : "󰏤  PAUSE"); color: activeCard.stateColor; font.family: root.contentFontFamily; font.pixelSize: Style.font.caption; font.bold: true }
-                        MouseArea { id: jobActionMouse; anchors.fill: parent; enabled: root.pipeline && root.pipeline.actionStatus !== "pausing" && root.pipeline.actionStatus !== "resuming"; hoverEnabled: true; cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor; onClicked: root.pipeline.runJobAction(jobAction.pausedJob ? "job_resume" : "job_pause", activeCard.modelData.id) }
+                        MouseArea { id: jobActionMouse; anchors.fill: parent; enabled: root.actionable && root.pipeline && root.pipeline.actionStatus !== "pausing" && root.pipeline.actionStatus !== "resuming"; hoverEnabled: true; cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor; onClicked: root.pipeline.runJobAction(jobAction.pausedJob ? "job_resume" : "job_pause", activeCard.modelData.id) }
                       }
                     }
                   }
@@ -414,7 +429,7 @@ Panel {
               id: historyClear; visible: root.historyTotal > 0; width: Style.space(32); height: Style.space(27); radius: height / 2
               color: clearMouse.containsMouse || root.confirmingClear ? Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.1) : "transparent"
               Text { anchors.centerIn: parent; text: "󰆴"; color: Qt.darker(root.contentForeground, 1.35); font.family: root.contentFontFamily; font.pixelSize: Style.font.bodySmall }
-              MouseArea { id: clearMouse; anchors.fill: parent; enabled: root.recentJobs.length > 0; hoverEnabled: true; cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor; onClicked: root.confirmingClear = !root.confirmingClear }
+              MouseArea { id: clearMouse; anchors.fill: parent; enabled: root.actionable && root.completedCount > 0; hoverEnabled: true; cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor; onClicked: root.confirmingClear = !root.confirmingClear }
             }
           }
 
@@ -434,7 +449,7 @@ Panel {
               Rectangle {
                 id: confirmClear; width: root.compact ? Style.space(92) : Style.space(142); height: parent.height; radius: Style.cornerRadius; color: confirmClearMouse.containsMouse ? Qt.rgba(Color.urgent.r, Color.urgent.g, Color.urgent.b, 0.2) : Qt.rgba(Color.urgent.r, Color.urgent.g, Color.urgent.b, 0.1); border.width: Style.spacing.hairline; border.color: Color.urgent
                 Text { anchors.centerIn: parent; text: root.pipeline && root.pipeline.actionJobId === "__history__" ? String(root.pipeline.actionStatus).toUpperCase() : (root.compact ? "CLEAR" : "CLEAR COMPLETED"); color: Color.urgent; font.family: root.contentFontFamily; font.pixelSize: Style.font.caption; font.bold: true }
-                MouseArea { id: confirmClearMouse; anchors.fill: parent; enabled: root.pipeline && root.pipeline.actionStatus !== "clearing"; hoverEnabled: true; cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor; onClicked: { root.pipeline.clearCompletedHistory(); root.confirmingClear = false } }
+                MouseArea { id: confirmClearMouse; anchors.fill: parent; enabled: root.actionable && root.pipeline && root.pipeline.actionStatus !== "clearing"; hoverEnabled: true; cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor; onClicked: { root.pipeline.clearCompletedHistory(); root.confirmingClear = false } }
               }
             }
           }
@@ -487,7 +502,7 @@ Panel {
                       color: recentCard.modelData.failed ? Color.urgent : Qt.darker(root.contentForeground, 1.4)
                       font.family: root.contentFontFamily; font.pixelSize: Style.font.caption; font.bold: true
                     }
-                    MouseArea { id: retryMouse; anchors.fill: parent; enabled: recentCard.modelData.failed && root.pipeline && root.pipeline.actionStatus !== "retrying"; hoverEnabled: true; cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor; onClicked: root.pipeline.retryJob(recentCard.modelData.id) }
+                    MouseArea { id: retryMouse; anchors.fill: parent; enabled: root.actionable && recentCard.modelData.failed && root.pipeline && root.pipeline.actionStatus !== "retrying"; hoverEnabled: true; cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor; onClicked: root.pipeline.retryJob(recentCard.modelData.id) }
                   }
                 }
               }
@@ -504,7 +519,7 @@ Panel {
 
           Row {
             width: parent.width; spacing: Style.space(14)
-            Text { text: root.compact ? "j/k select  ·  Enter/Space details  ·  p job" : "j/k or ↑↓ select  ·  Enter/Space details  ·  p job  ·  P queue  ·  r refresh  ·  O open  ·  Esc close"; color: Qt.darker(root.contentForeground, 1.6); font.family: root.contentFontFamily; font.pixelSize: Style.font.caption }
+            Text { text: !root.connected && !root.staleMode ? "r retry  ·  Esc close" : (root.compact ? "j/k select  ·  Enter/Space details  ·  p job" : "j/k or ↑↓ select  ·  Enter/Space details  ·  p job  ·  P queue  ·  r refresh  ·  O open  ·  Esc close"); color: Qt.darker(root.contentForeground, 1.6); font.family: root.contentFontFamily; font.pixelSize: Style.font.caption }
             Text { visible: root.pipeline && root.pipeline.actionStatus !== ""; text: String(root.pipeline.actionStatus).toUpperCase(); color: root.pipeline && root.pipeline.actionStatus === "failed" ? Color.urgent : Color.accent; font.family: root.contentFontFamily; font.pixelSize: Style.font.caption; font.bold: true }
           }
         }

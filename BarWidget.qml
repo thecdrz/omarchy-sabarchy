@@ -37,15 +37,19 @@ BarWidget {
   property double lastSuccessMs: 0
 
   readonly property bool connected: snapshot && snapshot.ok === true
+  readonly property bool actionable: connected && !stale
   readonly property bool paused: connected && snapshot.queue && snapshot.queue.paused === true
   readonly property string speedText: connected && snapshot.queue ? String(snapshot.queue.speed || "0 B/s") : "offline"
+  readonly property bool showSpeed: connected && snapshot.queue && Number(snapshot.queue.kbpersec || 0) > 0
   readonly property int activeCount: connected && snapshot.counts
-    ? Number(snapshot.counts.download || 0) + Number(snapshot.counts.verify || 0) + Number(snapshot.counts.unpack || 0)
+    ? Number(snapshot.counts.active_total !== undefined
+        ? snapshot.counts.active_total
+        : Number(snapshot.counts.download || 0) + Number(snapshot.counts.verify || 0) + Number(snapshot.counts.unpack || 0))
     : 0
 
   readonly property bool opened: panelLoader.item ? panelLoader.item.opened === true : false
   readonly property bool popoutSwitchClosing: panelLoader.item ? panelLoader.item.popoutSwitchClosing === true : false
-  readonly property real openPanelIndicatorWidth: button.labelWidth
+  readonly property real openPanelIndicatorWidth: speedContent.implicitWidth
 
   function helperCommand(action) {
     var command = [root.helperPath, action]
@@ -65,13 +69,13 @@ BarWidget {
   }
 
   function runAction(action) {
-    if (actionProc.running) return
+    if (actionProc.running || !root.actionable) return
     actionProc.command = helperCommand(action)
     actionProc.running = true
   }
 
   function retryJob(jobId) {
-    if (actionProc.running || !jobId) return
+    if (actionProc.running || !root.actionable || !jobId) return
     actionJobId = String(jobId)
     actionStatus = "retrying"
     if (root.demoState !== "") {
@@ -87,7 +91,7 @@ BarWidget {
   function loadMoreHistory() { historyLimit = Math.min(1000, historyLimit + 50); refresh() }
 
   function clearCompletedHistory() {
-    if (actionProc.running) return
+    if (actionProc.running || !root.actionable) return
     actionJobId = "__history__"
     actionStatus = "clearing"
     if (root.demoState !== "") {
@@ -100,7 +104,7 @@ BarWidget {
   }
 
   function runJobAction(action, jobId) {
-    if (actionProc.running || !jobId) return
+    if (actionProc.running || !root.actionable || !jobId) return
     actionJobId = String(jobId)
     actionStatus = action === "job_pause" ? "pausing" : "resuming"
     if (root.demoState !== "") {
@@ -235,22 +239,36 @@ BarWidget {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: root.vertical ? "  " : "   " + root.speedText
-    labelVisible: true
+    text: ""
+    labelVisible: false
+    hasVisualContent: true
+    fixedWidth: !root.vertical ? (root.showSpeed ? speedContent.implicitWidth + Style.space(16) : Style.bar.iconSlot) : -1
+    fixedHeight: root.vertical ? Style.bar.iconSlot : -1
     tooltipText: root.statusTooltip()
     active: !root.connected || root.paused
     activeColor: Color.urgent
-    SabarchyIcon {
-      width: Style.space(18)
-      height: width
-      anchors.verticalCenter: parent.verticalCenter
-      anchors.left: root.vertical ? undefined : parent.left
-      anchors.horizontalCenter: root.vertical ? parent.horizontalCenter : undefined
-      anchors.leftMargin: root.vertical ? 0 : Style.space(8)
-      iconColor: button.active && button.useActiveColor ? button.activeColor : button.foreground
+    Row {
+      id: speedContent
+      anchors.centerIn: parent
+      spacing: Style.space(6)
+      SabarchyIcon {
+        width: Style.space(18)
+        height: width
+        anchors.verticalCenter: parent.verticalCenter
+        iconColor: button.active && button.useActiveColor ? button.activeColor : button.foreground
+      }
+      Text {
+        visible: root.showSpeed && !root.vertical
+        anchors.verticalCenter: parent.verticalCenter
+        text: root.speedText
+        color: button.active && button.useActiveColor ? button.activeColor : button.foreground
+        font.family: button.fontFamily
+        font.pixelSize: button.fontSize
+        renderType: Text.NativeRendering
+      }
     }
     onPressed: function(buttonCode) {
-      if (buttonCode === Qt.RightButton && root.connected)
+      if (buttonCode === Qt.RightButton && root.actionable)
         root.runAction(root.paused ? "resume" : "pause")
       else
         root.toggle()

@@ -10,9 +10,13 @@ compact theme-aware panel.
 
 ![Active Omarchy 4 download with clear history](docs/screenshots/00-gruvbox-clean-download.png)
 
-### Active queue and recent history
+### Failure recovery and low-disk warning
 
-![Active download and recent history using Ristretto](docs/screenshots/variants/ristretto-active-history.png)
+![Failed download with retry controls and a low-disk warning](docs/screenshots/03-ristretto-failure-retry.png)
+
+### Tokyo Night
+
+![Active queue and recent history using Tokyo Night](docs/screenshots/07-tokyo-night-active-history.png)
 
 ## Features
 
@@ -70,9 +74,10 @@ omarchy plugin enable io.github.thecdrz.sabarchy
 
 ## Configuration
 
-The widget auto-detects `~/.sabnzbd/sabnzbd.ini`. If SABnzbd uses another
-location, set **SABnzbd config path** in the Omarchy bar settings. The refresh
-interval defaults to three seconds.
+The widget auto-detects `~/.sabnzbd/sabnzbd.ini` and
+`~/.config/sabnzbd/sabnzbd.ini`. If SABnzbd uses another location, set
+**SABnzbd config path** in the Omarchy bar settings. The refresh interval
+defaults to three seconds.
 
 ## Security
 
