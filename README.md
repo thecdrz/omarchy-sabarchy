@@ -15,6 +15,8 @@ compact theme-aware panel.
 
 ![Failure and retry state using Ristretto](docs/screenshots/03-ristretto-failure-retry.png)
 
+![Compact active download with clear history](docs/screenshots/06-ristretto-compact-clean.png)
+
 ## Features
 
 - Live queue speed, ETA, state, and job progress
@@ -94,6 +96,7 @@ The helper includes deterministic snapshots for visual regression testing withou
 
 ```bash
 bin/sabnzbd-pipeline-api snapshot --demo downloading
+bin/sabnzbd-pipeline-api snapshot --demo clean
 bin/sabnzbd-pipeline-api snapshot --demo processing
 bin/sabnzbd-pipeline-api snapshot --demo multiple
 bin/sabnzbd-pipeline-api snapshot --demo paused

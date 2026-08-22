@@ -390,28 +390,28 @@ Panel {
             visible: root.connected || root.staleMode
             width: parent.width; spacing: Style.space(8)
             Text { anchors.verticalCenter: parent.verticalCenter; text: "HISTORY"; color: root.contentForeground; font.family: root.contentFontFamily; font.pixelSize: Style.font.body; font.bold: true; font.letterSpacing: 1.2 }
-            Text { anchors.verticalCenter: parent.verticalCenter; text: String(root.historyTotal); color: Qt.darker(root.contentForeground, 1.5); font.family: root.contentFontFamily; font.pixelSize: Style.font.caption }
-            Item { width: Math.max(0, parent.width - historyAll.width - historyDone.width - historyIssues.width - historyClear.width - Style.space(190)); height: 1 }
+            Text { anchors.verticalCenter: parent.verticalCenter; text: root.historyTotal === 0 ? "CLEAR" : String(root.historyTotal); color: root.historyTotal === 0 ? Color.accent : Qt.darker(root.contentForeground, 1.5); font.family: root.contentFontFamily; font.pixelSize: Style.font.caption; font.bold: root.historyTotal === 0 }
+            Item { width: root.historyTotal === 0 ? 0 : Math.max(0, parent.width - historyAll.width - historyDone.width - historyIssues.width - historyClear.width - Style.space(190)); height: 1 }
             Rectangle {
-              id: historyAll; width: Style.space(54); height: Style.space(27); radius: height / 2
+              id: historyAll; visible: root.historyTotal > 0; width: Style.space(54); height: Style.space(27); radius: height / 2
               color: root.historyFilter === "all" ? Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.16) : "transparent"
               Text { anchors.centerIn: parent; text: "ALL"; color: root.historyFilter === "all" ? Color.accent : Qt.darker(root.contentForeground, 1.45); font.family: root.contentFontFamily; font.pixelSize: Style.font.caption; font.bold: true }
               MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.historyFilter = "all" }
             }
             Rectangle {
-              id: historyDone; width: Style.space(76); height: Style.space(27); radius: height / 2
+              id: historyDone; visible: root.historyTotal > 0; width: Style.space(76); height: Style.space(27); radius: height / 2
               color: root.historyFilter === "completed" ? Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.16) : "transparent"
               Text { anchors.centerIn: parent; text: root.compact ? "DONE" : "COMPLETED"; color: root.historyFilter === "completed" ? Color.accent : Qt.darker(root.contentForeground, 1.45); font.family: root.contentFontFamily; font.pixelSize: Style.font.caption; font.bold: true }
               MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.historyFilter = "completed" }
             }
             Rectangle {
-              id: historyIssues; width: Style.space(76); height: Style.space(27); radius: height / 2
+              id: historyIssues; visible: root.historyTotal > 0; width: Style.space(76); height: Style.space(27); radius: height / 2
               color: root.historyFilter === "issues" ? Qt.rgba(Color.urgent.r, Color.urgent.g, Color.urgent.b, 0.16) : "transparent"
               Text { anchors.centerIn: parent; text: "ISSUES " + root.issueCount; color: root.issueCount > 0 ? Color.urgent : Qt.darker(root.contentForeground, 1.45); font.family: root.contentFontFamily; font.pixelSize: Style.font.caption; font.bold: true }
               MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.historyFilter = "issues" }
             }
             Rectangle {
-              id: historyClear; width: Style.space(32); height: Style.space(27); radius: height / 2
+              id: historyClear; visible: root.historyTotal > 0; width: Style.space(32); height: Style.space(27); radius: height / 2
               color: clearMouse.containsMouse || root.confirmingClear ? Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.1) : "transparent"
               Text { anchors.centerIn: parent; text: "󰆴"; color: Qt.darker(root.contentForeground, 1.35); font.family: root.contentFontFamily; font.pixelSize: Style.font.bodySmall }
               MouseArea { id: clearMouse; anchors.fill: parent; enabled: root.recentJobs.length > 0; hoverEnabled: true; cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor; onClicked: root.confirmingClear = !root.confirmingClear }
@@ -440,7 +440,7 @@ Panel {
           }
 
           Rectangle {
-            visible: root.connected || root.staleMode
+            visible: (root.connected || root.staleMode) && root.historyTotal > 0
             width: parent.width
             height: recentList.height + Style.space(20) + (root.historyTotal > root.recentJobs.length ? Style.space(34) : 0)
             radius: Style.cornerRadius

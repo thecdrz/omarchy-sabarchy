@@ -194,6 +194,8 @@ def demo_snapshot(state: str, queue_limit: int = 100, history_limit: int = 50) -
         {"id": "recent-1", "name": "Frankenstein.1910.Library-of-Congress.mp4", "status": "Completed", "progress": 100.0, "category": "public-domain", "size": "248 MB", "sizeleft": "", "timeleft": "", "completed": "an hour ago", "done": True, "failed": False},
         {"id": "recent-2", "name": "Nosferatu.1922.Public-Domain.1080p.mp4", "status": "Completed", "progress": 100.0, "category": "public-domain", "size": "1.8 GB", "sizeleft": "", "timeleft": "", "completed": "yesterday", "done": True, "failed": False},
     ]
+    if state == "clean":
+        recent = []
     if state in {"failed", "large"}:
         recent.insert(0, {"id": "recent-failed", "name": "omarchy-4.0.0.iso", "status": "Failed", "progress": 71.0, "category": "omarchy", "size": "5.8 GB", "sizeleft": "", "timeleft": "", "completed": "12 minutes ago", "failure": "Repair failed, not enough repair blocks (142 short)", "labels": ["INCOMPLETE"], "priority": "Normal", "retry_count": 1, "done": True, "failed": True})
     history_total = len(recent)
@@ -220,7 +222,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("action", choices=("snapshot", "pause", "resume", "auth", "retry", "clear_completed", "job_pause", "job_resume"))
     parser.add_argument("--config", default="")
-    parser.add_argument("--demo", choices=("downloading", "processing", "multiple", "paused", "failed", "large", "not-configured", "offline"), default="")
+    parser.add_argument("--demo", choices=("downloading", "clean", "processing", "multiple", "paused", "failed", "large", "not-configured", "offline"), default="")
     parser.add_argument("--id", default="")
     parser.add_argument("--queue-limit", type=int, default=100)
     parser.add_argument("--history-limit", type=int, default=50)
