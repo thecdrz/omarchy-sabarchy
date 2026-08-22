@@ -10,6 +10,9 @@ compact theme-aware panel.
 
 ![Active Omarchy 4 download using Gruvbox](docs/screenshots/01-gruvbox-downloading.png)
 
+
+
+
 ![Failure and retry state using Ristretto](docs/screenshots/03-ristretto-failure-retry.png)
 
 ## Features
