@@ -6,9 +6,8 @@ from __future__ import annotations
 import argparse
 import configparser
 import json
-import os
+import math
 import ssl
-import sys
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -20,10 +19,50 @@ DEFAULT_CONFIGS = (
     Path.home() / ".sabnzbd" / "sabnzbd.ini",
     Path.home() / ".config" / "sabnzbd" / "sabnzbd.ini",
 )
+MAX_API_RESPONSE_BYTES = 1024 * 1024
+MAX_CONFIG_BYTES = 1024 * 1024
+MAX_OUTPUT_BYTES = 2 * 1024 * 1024
+MAX_PROCESSING_JOBS = 1000
+MAX_TOTAL_COUNT = 1_000_000
+MAX_JOB_ID_CHARS = 256
+MAX_NAME_CHARS = 512
+MAX_FAILURE_CHARS = 2048
+MAX_LABELS = 16
+MAX_LABEL_CHARS = 128
+MAX_SHORT_TEXT_CHARS = 128
+
+
+class ApiResponseError(Exception):
+    """Raised when the local SABnzbd API returns unsafe or invalid data."""
+
+
+class NoRedirects(urllib.request.HTTPRedirectHandler):
+    def redirect_request(
+        self,
+        request: Any,
+        file_pointer: Any,
+        code: int,
+        message: str,
+        headers: Any,
+        new_url: str,
+    ) -> None:
+        return None
+
+
+def reject_json_constant(value: str) -> None:
+    raise ApiResponseError(f"Invalid JSON number: {value}")
 
 
 def emit(payload: dict[str, Any], code: int = 0) -> None:
-    print(json.dumps(payload, separators=(",", ":")))
+    try:
+        output = json.dumps(payload, separators=(",", ":"), allow_nan=False)
+    except (TypeError, ValueError):
+        output = '{"ok":false,"state":"api-error","message":"Could not serialize SABnzbd response"}'
+        code = 5
+    if len(output.encode("utf-8")) > MAX_OUTPUT_BYTES:
+        output = '{"ok":false,"state":"api-error","message":"SABnzbd response exceeded the safe output limit"}'
+        code = 5
+    print(output)
     raise SystemExit(code)
 
 
@@ -41,16 +80,26 @@ def find_config(explicit: str) -> Path:
 
 def connection(path: Path) -> tuple[str, str]:
     config = configparser.ConfigParser(interpolation=None)
-    contents = path.read_text(encoding="utf-8")
+    with path.open("rb") as config_file:
+        raw_contents = config_file.read(MAX_CONFIG_BYTES + 1)
+    if len(raw_contents) > MAX_CONFIG_BYTES:
+        raise ValueError("SABnzbd config exceeds the 1 MiB safety limit")
+    contents = raw_contents.decode("utf-8")
     # SABnzbd keeps format metadata before its first INI section.
     config.read_string("[sabnzbd_metadata]\n" + contents)
     misc = config["misc"]
     port = misc.getint("port", fallback=8080)
+    if not 1 <= port <= 65535:
+        raise ValueError("SABnzbd port must be between 1 and 65535")
     scheme = "https" if misc.getboolean("enable_https", fallback=False) else "http"
     api_key = misc.get("api_key", fallback="").strip()
     if not api_key:
         raise ValueError("SABnzbd API key is missing; check Config > General")
+    if len(api_key) > 256:
+        raise ValueError("SABnzbd API key exceeds the safety limit")
     url_base = misc.get("url_base", fallback="").strip().strip("/")
+    if len(url_base) > 256:
+        raise ValueError("SABnzbd URL base exceeds the safety limit")
     base_url = f"{scheme}://127.0.0.1:{port}"
     if url_base:
         base_url += f"/{url_base}"
@@ -63,15 +112,97 @@ def api(base_url: str, api_key: str, **params: Any) -> dict[str, Any]:
     url = f"{base_url}/api?{urllib.parse.urlencode(query)}"
     request = urllib.request.Request(url, headers={"Accept": "application/json"})
     context = ssl._create_unverified_context() if base_url.startswith("https://127.0.0.1:") else None
-    with urllib.request.urlopen(request, timeout=3, context=context) as response:
-        return json.load(response)
+    handlers: list[Any] = [urllib.request.ProxyHandler({}), NoRedirects()]
+    if context is not None:
+        handlers.append(urllib.request.HTTPSHandler(context=context))
+    opener = urllib.request.build_opener(*handlers)
+    with opener.open(request, timeout=3) as response:
+        content_length = response.headers.get("Content-Length")
+        announced_length = None
+        if content_length:
+            try:
+                announced_length = int(content_length)
+                if announced_length < 0:
+                    raise ValueError
+                if announced_length > MAX_API_RESPONSE_BYTES:
+                    raise ApiResponseError("SABnzbd API response exceeds the 1 MiB safety limit")
+            except ValueError as error:
+                raise ApiResponseError("SABnzbd API returned an invalid Content-Length") from error
+        body = response.read(MAX_API_RESPONSE_BYTES + 1)
+    if len(body) > MAX_API_RESPONSE_BYTES:
+        raise ApiResponseError("SABnzbd API response exceeds the 1 MiB safety limit")
+    if announced_length is not None and len(body) != announced_length:
+        raise ApiResponseError("SABnzbd API returned an incomplete response")
+    try:
+        payload = json.loads(body, parse_constant=reject_json_constant)
+    except (json.JSONDecodeError, UnicodeDecodeError, RecursionError, ValueError) as error:
+        raise ApiResponseError("SABnzbd API returned invalid JSON") from error
+    if not isinstance(payload, dict):
+        raise ApiResponseError("SABnzbd API response must be a JSON object")
+    return payload
+
+
+def text(value: Any, default: str = "", limit: int = MAX_SHORT_TEXT_CHARS) -> str:
+    if value is None:
+        result = default
+    elif isinstance(value, (str, int, float, bool)):
+        try:
+            result = str(value)
+        except ValueError:
+            result = default
+    else:
+        result = default
+    return result[:limit]
 
 
 def number(value: Any, default: float = 0.0) -> float:
     try:
-        return float(value)
-    except (TypeError, ValueError):
+        result = float(value)
+    except (TypeError, ValueError, OverflowError):
         return default
+    return result if math.isfinite(result) else default
+
+
+def count(value: Any, default: int) -> int:
+    return max(0, min(MAX_TOTAL_COUNT, int(number(value, float(default)))))
+
+
+def section(payload: dict[str, Any], name: str) -> dict[str, Any]:
+    value = payload.get(name, {})
+    return value if isinstance(value, dict) else {}
+
+
+def slots(payload: dict[str, Any], limit: int) -> list[dict[str, Any]]:
+    value = payload.get("slots", [])
+    if not isinstance(value, list):
+        return []
+    return [item for item in value[:limit] if isinstance(item, dict)]
+
+
+def labels(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [text(item, limit=MAX_LABEL_CHARS) for item in value[:MAX_LABELS]]
+
+
+def job_id(value: str) -> str:
+    if not value:
+        raise ValueError("Job action requires a SABnzbd job id")
+    if len(value) > MAX_JOB_ID_CHARS or any(ord(character) < 32 for character in value):
+        raise ValueError("SABnzbd job id exceeds the safety limit")
+    return value
+
+
+def succeeded(payload: dict[str, Any]) -> bool:
+    return payload.get("status") is True
+
+
+def boolean(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return False
 
 
 def progress(slot: dict[str, Any]) -> float:
@@ -83,39 +214,48 @@ def progress(slot: dict[str, Any]) -> float:
 
 
 def job(slot: dict[str, Any], *, done: bool = False) -> dict[str, Any]:
-    status = str(slot.get("status") or "Unknown")
+    status = text(slot.get("status"), "Unknown") or "Unknown"
+    name = text(slot.get("name"), limit=MAX_NAME_CHARS) or text(
+        slot.get("filename"), "Untitled", MAX_NAME_CHARS
+    )
     return {
-        "id": str(slot.get("nzo_id") or ""),
-        "name": str(slot.get("name") or slot.get("filename") or "Untitled"),
+        "id": text(slot.get("nzo_id"), limit=MAX_JOB_ID_CHARS),
+        "name": name or "Untitled",
         "status": status,
         "progress": 100.0 if status == "Completed" else round(progress(slot), 2),
-        "category": str(slot.get("cat") or slot.get("category") or ""),
-        "size": str(slot.get("size") or ""),
-        "sizeleft": str(slot.get("sizeleft") or ""),
-        "timeleft": str(slot.get("timeleft") or ""),
-        "completed": str(slot.get("completed_nice") or ""),
-        "failure": str(slot.get("fail_message") or slot.get("script_line") or ""),
-        "labels": list(slot.get("labels") or []),
-        "priority": str(slot.get("priority") or ""),
-        "retry_count": int(number(slot.get("retry"))),
+        "category": text(slot.get("cat")) or text(slot.get("category")),
+        "size": text(slot.get("size")),
+        "sizeleft": text(slot.get("sizeleft")),
+        "timeleft": text(slot.get("timeleft")),
+        "completed": text(slot.get("completed_nice")),
+        "failure": text(slot.get("fail_message"), limit=MAX_FAILURE_CHARS)
+        or text(slot.get("script_line"), limit=MAX_FAILURE_CHARS),
+        "labels": labels(slot.get("labels")),
+        "priority": text(slot.get("priority")),
+        "retry_count": count(slot.get("retry"), 0),
         "done": done,
         "failed": status == "Failed",
     }
 
 
 def snapshot(base_url: str, api_key: str, queue_limit: int, history_limit: int) -> dict[str, Any]:
-    queue_data = api(base_url, api_key, mode="queue", start=0, limit=queue_limit).get("queue", {})
+    queue_data = section(api(base_url, api_key, mode="queue", start=0, limit=queue_limit), "queue")
     processing_statuses = "QuickCheck,Verifying,Repairing,Fetching,Extracting,Moving,Running,Queued"
     recent_statuses = "Completed,Failed"
-    processing_data = api(
-        base_url, api_key, mode="history", start=0, limit=1000, status=processing_statuses
-    ).get("history", {})
-    history_data = api(
-        base_url, api_key, mode="history", start=0, limit=history_limit, status=recent_statuses
-    ).get("history", {})
-    queue_jobs = [job(slot) for slot in queue_data.get("slots", [])]
-    processing_jobs = [job(slot) for slot in processing_data.get("slots", [])]
-    history_jobs = [job(slot, done=slot.get("status") in {"Completed", "Failed"}) for slot in history_data.get("slots", [])]
+    processing_data = section(
+        api(base_url, api_key, mode="history", start=0, limit=MAX_PROCESSING_JOBS, status=processing_statuses),
+        "history",
+    )
+    history_data = section(
+        api(base_url, api_key, mode="history", start=0, limit=history_limit, status=recent_statuses),
+        "history",
+    )
+    queue_jobs = [job(slot) for slot in slots(queue_data, queue_limit)]
+    processing_jobs = [job(slot) for slot in slots(processing_data, MAX_PROCESSING_JOBS)]
+    history_jobs = [
+        job(slot, done=text(slot.get("status"), "Unknown") in {"Completed", "Failed"})
+        for slot in slots(history_data, history_limit)
+    ]
 
     verify_statuses = {"QuickCheck", "Verifying", "Repairing", "Fetching"}
     unpack_statuses = {"Extracting", "Moving", "Running", "Queued"}
@@ -125,7 +265,7 @@ def snapshot(base_url: str, api_key: str, queue_limit: int, history_limit: int) 
     failed = [item for item in history_jobs if item["status"] == "Failed"]
     completed = [item for item in history_jobs if item["status"] == "Completed"]
 
-    raw_speed = str(queue_data.get("speed") or "0 B").strip()
+    raw_speed = text(queue_data.get("speed"), "0 B").strip() or "0 B"
     if raw_speed.replace(".", "", 1).isdigit():
         raw_speed += " B"
     speed = raw_speed if raw_speed.lower().endswith("/s") else f"{raw_speed}/s"
@@ -133,26 +273,27 @@ def snapshot(base_url: str, api_key: str, queue_limit: int, history_limit: int) 
     available_values = [value for value in disk_values if value >= 0]
     disk_free_gb = min(available_values) if available_values else -1
 
-    queue_total = int(number(queue_data.get("noofslots_total", queue_data.get("noofslots", len(queue_jobs)))))
-    processing_total = int(number(processing_data.get("noofslots", len(processing_jobs))))
-    history_total = int(number(history_data.get("noofslots", len(history_jobs))))
+    queue_total = count(queue_data.get("noofslots_total", queue_data.get("noofslots")), len(queue_jobs))
+    processing_total = count(processing_data.get("noofslots"), len(processing_jobs))
+    history_total = count(history_data.get("noofslots"), len(history_jobs))
 
     return {
         "ok": True,
         "state": "ready",
         "web_url": base_url,
         "queue": {
-            "status": str(queue_data.get("status") or "Idle"),
-            "paused": bool(queue_data.get("paused", False)),
+            "status": text(queue_data.get("status"), "Idle") or "Idle",
+            "paused": boolean(queue_data.get("paused", False)),
             "speed": speed,
             "kbpersec": number(queue_data.get("kbpersec")),
-            "timeleft": str(queue_data.get("timeleft") or "0:00:00"),
-            "sizeleft": str(queue_data.get("sizeleft") or "0 B"),
+            "timeleft": text(queue_data.get("timeleft"), "0:00:00") or "0:00:00",
+            "sizeleft": text(queue_data.get("sizeleft"), "0 B") or "0 B",
             "jobs": queue_jobs,
         },
         "disk": {
             "free_gb": round(disk_free_gb, 1),
-            "free": str(queue_data.get("diskspace2_norm") or queue_data.get("diskspace1_norm") or "Unknown"),
+            "free": text(queue_data.get("diskspace2_norm"))
+            or text(queue_data.get("diskspace1_norm"), "Unknown"),
             "low": 0 <= disk_free_gb < 20,
         },
         "stages": {
@@ -255,35 +396,33 @@ def main() -> None:
         if args.action == "auth":
             emit({"ok": True, "web_url": base_url})
         if args.action == "retry":
-            if not args.id:
-                raise ValueError("Retry requires a SABnzbd job id")
-            result = api(base_url, api_key, mode="retry", value=args.id)
-            succeeded = bool(result.get("status", False))
-            emit({"ok": succeeded, "action": "retry", "id": args.id}, 0 if succeeded else 6)
+            target_id = job_id(args.id)
+            result = api(base_url, api_key, mode="retry", value=target_id)
+            action_succeeded = succeeded(result)
+            emit({"ok": action_succeeded, "action": "retry", "id": target_id}, 0 if action_succeeded else 6)
         if args.action == "clear_completed":
             result = api(base_url, api_key, mode="history", name="delete", value="completed")
-            succeeded = bool(result.get("status", False))
-            emit({"ok": succeeded, "action": "clear_completed"}, 0 if succeeded else 6)
+            action_succeeded = succeeded(result)
+            emit({"ok": action_succeeded, "action": "clear_completed"}, 0 if action_succeeded else 6)
         if args.action in {"job_pause", "job_resume"}:
-            if not args.id:
-                raise ValueError("Job action requires a SABnzbd job id")
+            target_id = job_id(args.id)
             name = "pause" if args.action == "job_pause" else "resume"
-            result = api(base_url, api_key, mode="queue", name=name, value=args.id)
-            succeeded = bool(result.get("status", False))
-            emit({"ok": succeeded, "action": args.action, "id": args.id}, 0 if succeeded else 6)
+            result = api(base_url, api_key, mode="queue", name=name, value=target_id)
+            action_succeeded = succeeded(result)
+            emit({"ok": action_succeeded, "action": args.action, "id": target_id}, 0 if action_succeeded else 6)
         result = api(base_url, api_key, mode=args.action)
-        succeeded = bool(result.get("status", True))
-        emit({"ok": succeeded, "action": args.action}, 0 if succeeded else 6)
+        action_succeeded = succeeded(result)
+        emit({"ok": action_succeeded, "action": args.action}, 0 if action_succeeded else 6)
     except FileNotFoundError as error:
-        emit({"ok": False, "state": "not-configured", "message": str(error)}, 2)
+        emit({"ok": False, "state": "not-configured", "message": text(str(error), limit=512)}, 2)
     except urllib.error.HTTPError as error:
         emit({"ok": False, "state": "api-error", "message": f"SABnzbd API error: HTTP {error.code}"}, 5)
     except (ConnectionError, TimeoutError, urllib.error.URLError):
         emit({"ok": False, "state": "offline", "message": "SABnzbd is not running"}, 3)
+    except ApiResponseError as error:
+        emit({"ok": False, "state": "api-error", "message": text(str(error), limit=512)}, 5)
     except (configparser.Error, KeyError, ValueError) as error:
-        emit({"ok": False, "state": "configuration-error", "message": str(error)}, 4)
-    except json.JSONDecodeError as error:
-        emit({"ok": False, "state": "api-error", "message": f"SABnzbd API error: {error}"}, 5)
+        emit({"ok": False, "state": "configuration-error", "message": text(str(error), limit=512)}, 4)
 
 
 if __name__ == "__main__":

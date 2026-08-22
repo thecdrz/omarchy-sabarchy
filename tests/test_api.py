@@ -9,6 +9,7 @@ from pathlib import Path
 
 
 HELPER = Path(__file__).parents[1] / "bin" / "sabnzbd-pipeline-api"
+MAX_API_RESPONSE_BYTES = 1024 * 1024
 
 
 class ApiHandler(BaseHTTPRequestHandler):
@@ -18,8 +19,17 @@ class ApiHandler(BaseHTTPRequestHandler):
     queue = {"slots": [], "noofslots": 0, "noofslots_total": 0}
     processing_history = {"slots": [], "noofslots": 0}
     recent_history = {"slots": [], "noofslots": 0}
+    raw_body = None
+    send_content_length = True
+    content_length_override = None
+    redirect_location = None
 
     def do_GET(self):
+        if ApiHandler.redirect_location is not None:
+            self.send_response(302)
+            self.send_header("Location", ApiHandler.redirect_location)
+            self.end_headers()
+            return
         parsed = urllib.parse.urlparse(self.path)
         ApiHandler.last_query = urllib.parse.parse_qs(parsed.query)
         ApiHandler.queries.append((parsed.path, ApiHandler.last_query))
@@ -33,12 +43,17 @@ class ApiHandler(BaseHTTPRequestHandler):
             payload = {"history": ApiHandler.processing_history}
         else:
             payload = {"status": ApiHandler.action_status}
-        body = json.dumps(payload).encode()
+        body = ApiHandler.raw_body if ApiHandler.raw_body is not None else json.dumps(payload).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
+        if ApiHandler.send_content_length:
+            content_length = ApiHandler.content_length_override
+            self.send_header("Content-Length", str(len(body) if content_length is None else content_length))
         self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
     def log_message(self, *_args):
         pass
@@ -52,6 +67,10 @@ class HelperTests(unittest.TestCase):
         ApiHandler.queue = {"slots": [], "noofslots": 0, "noofslots_total": 0}
         ApiHandler.processing_history = {"slots": [], "noofslots": 0}
         ApiHandler.recent_history = {"slots": [], "noofslots": 0}
+        ApiHandler.raw_body = None
+        ApiHandler.send_content_length = True
+        ApiHandler.content_length_override = None
+        ApiHandler.redirect_location = None
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), ApiHandler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -110,6 +129,14 @@ class HelperTests(unittest.TestCase):
     def test_retry_failure_returns_nonzero(self):
         ApiHandler.action_status = False
         result = self.run_retry()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(json.loads(result.stdout)["ok"])
+
+    def test_action_requires_literal_boolean_success(self):
+        ApiHandler.action_status = "true"
+
+        result = self.run_retry()
+
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(json.loads(result.stdout)["ok"])
 
@@ -237,6 +264,160 @@ class HelperTests(unittest.TestCase):
             self.assertEqual(item["category"], markup)
             self.assertEqual(item["labels"], [markup])
         self.assertEqual(failed["failure"], markup)
+
+    def test_snapshot_rejects_oversized_api_body_without_content_length(self):
+        ApiHandler.raw_body = b" " * (MAX_API_RESPONSE_BYTES + 1)
+        ApiHandler.send_content_length = False
+
+        result = self.run_snapshot()
+
+        self.assertEqual(result.returncode, 5)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["state"], "api-error")
+        self.assertIn("1 MiB", payload["message"])
+        self.assertLess(len(result.stdout), 1024)
+
+    def test_snapshot_rejects_announced_oversized_api_body(self):
+        ApiHandler.raw_body = b"{}"
+        ApiHandler.content_length_override = MAX_API_RESPONSE_BYTES + 1
+
+        result = self.run_snapshot()
+
+        self.assertEqual(result.returncode, 5)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["state"], "api-error")
+        self.assertIn("1 MiB", payload["message"])
+
+    def test_snapshot_rejects_incomplete_announced_api_body(self):
+        ApiHandler.raw_body = b"{}"
+        ApiHandler.content_length_override = 100
+
+        result = self.run_snapshot()
+
+        self.assertEqual(result.returncode, 5)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["state"], "api-error")
+        self.assertIn("incomplete", payload["message"])
+
+    def test_snapshot_rejects_non_object_and_non_finite_json(self):
+        for raw_body in (b"[]", b'{"queue":{"kbpersec":NaN}}'):
+            with self.subTest(raw_body=raw_body):
+                ApiHandler.raw_body = raw_body
+                result = self.run_snapshot()
+                self.assertEqual(result.returncode, 5)
+                self.assertEqual(json.loads(result.stdout)["state"], "api-error")
+
+    def test_api_redirect_is_not_followed(self):
+        ApiHandler.redirect_location = "http://127.0.0.1:1/not-followed"
+
+        result = self.run_snapshot()
+
+        self.assertEqual(result.returncode, 5)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["state"], "api-error")
+        self.assertIn("HTTP 302", payload["message"])
+
+    def test_snapshot_enforces_server_array_limits(self):
+        ApiHandler.queue = {
+            "slots": [
+                {"nzo_id": f"queue-{index}", "name": f"Queue {index}", "status": "Downloading"}
+                for index in range(25)
+            ]
+        }
+        ApiHandler.processing_history = {
+            "slots": [
+                {"nzo_id": f"processing-{index}", "name": f"Processing {index}", "status": "Verifying"}
+                for index in range(1005)
+            ]
+        }
+        ApiHandler.recent_history = {
+            "slots": [
+                {"nzo_id": f"recent-{index}", "name": f"Recent {index}", "status": "Completed"}
+                for index in range(25)
+            ]
+        }
+
+        result = self.run_snapshot("--queue-limit", "20", "--history-limit", "20")
+
+        self.assertEqual(result.returncode, 0)
+        payload = json.loads(result.stdout)
+        self.assertEqual(len(payload["stages"]["download"]), 20)
+        self.assertEqual(len(payload["stages"]["verify"]), 1000)
+        self.assertEqual(len(payload["stages"]["recent"]), 20)
+
+    def test_snapshot_bounds_server_strings_and_labels(self):
+        oversized = "x" * 4096
+        excessive_labels = [oversized] * 32
+        ApiHandler.queue = {
+            "speed": oversized,
+            "slots": [
+                {
+                    "nzo_id": oversized,
+                    "name": oversized,
+                    "status": "Downloading",
+                    "cat": oversized,
+                    "labels": excessive_labels,
+                }
+            ],
+        }
+        ApiHandler.recent_history = {
+            "slots": [
+                {
+                    "nzo_id": "failed",
+                    "name": "Failed",
+                    "status": "Failed",
+                    "fail_message": oversized,
+                }
+            ]
+        }
+
+        result = self.run_snapshot()
+
+        self.assertEqual(result.returncode, 0)
+        payload = json.loads(result.stdout)
+        active = payload["stages"]["download"][0]
+        failed = payload["stages"]["recent"][0]
+        self.assertEqual(len(active["id"]), 256)
+        self.assertEqual(len(active["name"]), 512)
+        self.assertEqual(len(active["category"]), 128)
+        self.assertEqual(len(active["labels"]), 16)
+        self.assertTrue(all(len(label) == 128 for label in active["labels"]))
+        self.assertEqual(len(failed["failure"]), 2048)
+        self.assertLessEqual(len(payload["queue"]["speed"]), 130)
+
+    def test_snapshot_refuses_output_that_would_overfill_shell_collector(self):
+        name = "n" * 512
+        category = "c" * 128
+        ApiHandler.queue = {
+            "slots": [
+                {"nzo_id": f"queue-{index}", "name": name, "cat": category, "status": "Downloading"}
+                for index in range(1000)
+            ]
+        }
+        ApiHandler.processing_history = {
+            "slots": [
+                {"nzo_id": f"processing-{index}", "name": name, "cat": category, "status": "Verifying"}
+                for index in range(1000)
+            ]
+        }
+
+        result = self.run_snapshot("--queue-limit", "1000")
+
+        self.assertEqual(result.returncode, 5)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["state"], "api-error")
+        self.assertIn("output limit", payload["message"])
+        self.assertLess(len(result.stdout), 1024)
+
+    def test_oversized_config_is_rejected_with_bounded_output(self):
+        self.config.write_bytes(b"x" * (1024 * 1024 + 1))
+
+        result = self.run_snapshot()
+
+        self.assertEqual(result.returncode, 4)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["state"], "configuration-error")
+        self.assertLess(len(result.stdout), 1024)
 
     def test_global_pause_and_resume_use_documented_modes(self):
         for action in ("pause", "resume"):

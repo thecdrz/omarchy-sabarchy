@@ -34,6 +34,7 @@ BarWidget {
   property int historyLimit: 50
   property bool hasGoodSnapshot: false
   property bool stale: false
+  property bool snapshotTimedOut: false
   property double lastSuccessMs: 0
 
   readonly property bool connected: snapshot && snapshot.ok === true
@@ -64,13 +65,20 @@ BarWidget {
   function refresh() {
     if (snapshotProc.running) return
     refreshing = true
+    snapshotTimedOut = false
     snapshotProc.command = helperCommand("snapshot")
+    snapshotTimeout.restart()
     snapshotProc.running = true
   }
 
   function runAction(action) {
     if (actionProc.running || !root.actionable) return
+    if (root.demoState !== "") {
+      demoActionTimer.restart()
+      return
+    }
     actionProc.command = helperCommand(action)
+    actionTimeout.restart()
     actionProc.running = true
   }
 
@@ -84,6 +92,7 @@ BarWidget {
     }
     actionProc.command = [root.helperPath, "retry", "--id", actionJobId]
     if (root.configPath !== "") actionProc.command.push("--config", root.configPath)
+    actionTimeout.restart()
     actionProc.running = true
   }
 
@@ -100,6 +109,7 @@ BarWidget {
     }
     actionProc.command = [root.helperPath, "clear_completed"]
     if (root.configPath !== "") actionProc.command.push("--config", root.configPath)
+    actionTimeout.restart()
     actionProc.running = true
   }
 
@@ -113,6 +123,7 @@ BarWidget {
     }
     actionProc.command = [root.helperPath, action, "--id", actionJobId]
     if (root.configPath !== "") actionProc.command.push("--config", root.configPath)
+    actionTimeout.restart()
     actionProc.running = true
   }
 
@@ -141,7 +152,9 @@ BarWidget {
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
+        snapshotTimeout.stop()
         root.refreshing = false
+        if (root.snapshotTimedOut) return
         var raw = String(text || "").trim()
         if (!raw) {
           root.lastError = "SABnzbd helper returned no data"
@@ -168,6 +181,7 @@ BarWidget {
       }
     }
     onExited: function(exitCode) {
+      snapshotTimeout.stop()
       root.refreshing = false
       if (exitCode !== 0 && root.lastError === "") root.lastError = "Could not contact SABnzbd"
       if (exitCode !== 0) root.stale = root.hasGoodSnapshot
@@ -178,6 +192,7 @@ BarWidget {
     id: actionProc
     stdout: StdioCollector { waitForEnd: true }
     onExited: function(exitCode) {
+      actionTimeout.stop()
       root.actionStatus = exitCode === 0 ? "accepted" : "failed"
       Qt.callLater(root.refresh)
       actionClearTimer.restart()
@@ -186,6 +201,28 @@ BarWidget {
 
   Timer { id: actionClearTimer; interval: 3000; onTriggered: { root.actionJobId = ""; root.actionStatus = "" } }
   Timer { id: demoActionTimer; interval: 650; onTriggered: { root.actionStatus = "accepted"; actionClearTimer.restart() } }
+  Timer {
+    id: snapshotTimeout
+    interval: 12000
+    onTriggered: {
+      if (!snapshotProc.running) return
+      root.snapshotTimedOut = true
+      root.lastError = "SABnzbd helper timed out"
+      root.stale = root.hasGoodSnapshot
+      root.refreshing = false
+      snapshotProc.running = false
+    }
+  }
+  Timer {
+    id: actionTimeout
+    interval: 6000
+    onTriggered: {
+      if (!actionProc.running) return
+      root.actionStatus = "failed"
+      actionProc.running = false
+      actionClearTimer.restart()
+    }
+  }
 
   Timer {
     id: refreshTimer

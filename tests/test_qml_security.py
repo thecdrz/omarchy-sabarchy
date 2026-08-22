@@ -19,6 +19,15 @@ class QmlSecurityTests(unittest.TestCase):
                     f"{name} contains a Text item that defaults to Text.AutoText",
                 )
 
+    def test_global_demo_action_is_simulated_and_real_action_is_timed(self):
+        source = (ROOT / "BarWidget.qml").read_text(encoding="utf-8")
+        start = source.index("function runAction(action)")
+        end = source.index("function retryJob(jobId)")
+        action = source[start:end]
+        self.assertIn('root.demoState !== ""', action)
+        self.assertIn("demoActionTimer.restart()", action)
+        self.assertIn("actionTimeout.restart()", action)
+
 
 if __name__ == "__main__":
     unittest.main()
