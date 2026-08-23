@@ -16,3 +16,8 @@ and action helpers are also terminated if they exceed their time budgets.
 
 All SABnzbd-provided text is rendered as plain text. Job metadata is never
 interpreted as rich text or used to load inline resources.
+
+Notification summaries and bodies are built from the same bounded, plain-text
+job fields and are delivered through `notify-send` without a shell. The open
+folder action only accepts an absolute local path that the helper has already
+validated, and launches `xdg-open` directly with that single argument.

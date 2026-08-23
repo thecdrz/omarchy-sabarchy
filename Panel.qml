@@ -169,6 +169,7 @@ Panel {
           root.pipeline.runJobAction(String(selected.status).toLowerCase() === "paused" ? "job_resume" : "job_pause", selected.id)
         }
         else if (text === "P") { if (root.actionable && root.pipeline) root.pipeline.runAction(root.pipeline.paused ? "resume" : "pause") }
+        else if (text === "f" && root.focusSection === "history" && root.historyIndex >= 0 && root.historyIndex < root.filteredRecentJobs.length && root.pipeline) root.pipeline.openFolder(root.filteredRecentJobs[root.historyIndex].storage)
         else if ((text === "o" || text === "O") && root.pipelineData.web_url) Qt.openUrlExternally(String(root.pipelineData.web_url))
       }
 
@@ -490,19 +491,21 @@ Panel {
                   }
                   Rectangle {
                     id: retryButton
-                    width: recentCard.modelData.failed ? Style.space(78) : Style.space(86); height: Style.space(28); radius: height / 2; anchors.verticalCenter: parent.verticalCenter
-                    color: recentCard.modelData.failed && retryMouse.containsMouse ? Qt.rgba(Color.urgent.r, Color.urgent.g, Color.urgent.b, 0.2) : "transparent"
-                    border.width: recentCard.modelData.failed ? Style.spacing.hairline : 0
-                    border.color: Color.urgent
+                    readonly property bool failedItem: recentCard.modelData.failed === true
+                    readonly property bool canOpen: !failedItem && Boolean(recentCard.modelData.storage)
+                    width: retryButton.failedItem ? Style.space(78) : Style.space(86); height: Style.space(28); radius: height / 2; anchors.verticalCenter: parent.verticalCenter
+                    color: (retryButton.failedItem || retryButton.canOpen) && retryMouse.containsMouse ? Qt.rgba((retryButton.failedItem ? Color.urgent : Color.accent).r, (retryButton.failedItem ? Color.urgent : Color.accent).g, (retryButton.failedItem ? Color.urgent : Color.accent).b, 0.2) : "transparent"
+                    border.width: (retryButton.failedItem || retryButton.canOpen) ? Style.spacing.hairline : 0
+                    border.color: retryButton.failedItem ? Color.urgent : Color.accent
                     Text { textFormat: Text.PlainText;
                       anchors.centerIn: parent
-                      text: recentCard.modelData.failed
+                      text: retryButton.failedItem
                         ? (root.pipeline && root.pipeline.actionJobId === recentCard.modelData.id ? String(root.pipeline.actionStatus || "retrying").toUpperCase() : "󰑓  RETRY")
-                        : "COMPLETED"
-                      color: recentCard.modelData.failed ? Color.urgent : Qt.darker(root.contentForeground, 1.4)
+                        : (retryButton.canOpen ? "OPEN  󰏋" : "COMPLETED")
+                      color: retryButton.failedItem ? Color.urgent : (retryButton.canOpen ? Color.accent : Qt.darker(root.contentForeground, 1.4))
                       font.family: root.contentFontFamily; font.pixelSize: Style.font.caption; font.bold: true
                     }
-                    MouseArea { id: retryMouse; anchors.fill: parent; enabled: root.actionable && recentCard.modelData.failed && root.pipeline && root.pipeline.actionStatus !== "retrying"; hoverEnabled: true; cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor; onClicked: root.pipeline.retryJob(recentCard.modelData.id) }
+                    MouseArea { id: retryMouse; anchors.fill: parent; enabled: retryButton.failedItem ? (root.actionable && root.pipeline && root.pipeline.actionStatus !== "retrying") : retryButton.canOpen; hoverEnabled: true; cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor; onClicked: { if (retryButton.failedItem) { if (root.pipeline) root.pipeline.retryJob(recentCard.modelData.id) } else if (root.pipeline) root.pipeline.openFolder(recentCard.modelData.storage) } }
                   }
                 }
               }
@@ -519,7 +522,7 @@ Panel {
 
           Row {
             width: parent.width; spacing: Style.space(14)
-            Text { textFormat: Text.PlainText; text: !root.connected && !root.staleMode ? "r retry  ·  Esc close" : (root.compact ? "j/k select  ·  Enter/Space details  ·  p job" : "j/k or ↑↓ select  ·  Enter/Space details  ·  p job  ·  P queue  ·  r refresh  ·  O open  ·  Esc close"); color: Qt.darker(root.contentForeground, 1.6); font.family: root.contentFontFamily; font.pixelSize: Style.font.caption }
+            Text { textFormat: Text.PlainText; text: !root.connected && !root.staleMode ? "r retry  ·  Esc close" : (root.compact ? "j/k select  ·  Enter/Space details  ·  p job" : "j/k or ↑↓ select  ·  Enter/Space details  ·  p job  ·  P queue  ·  r refresh  ·  O open  ·  f folder  ·  Esc close"); color: Qt.darker(root.contentForeground, 1.6); font.family: root.contentFontFamily; font.pixelSize: Style.font.caption }
             Text { textFormat: Text.PlainText; visible: root.pipeline && root.pipeline.actionStatus !== ""; text: String(root.pipeline.actionStatus).toUpperCase(); color: root.pipeline && root.pipeline.actionStatus === "failed" ? Color.urgent : Color.accent; font.family: root.contentFontFamily; font.pixelSize: Style.font.caption; font.bold: true }
           }
         }

@@ -30,6 +30,9 @@ MAX_FAILURE_CHARS = 2048
 MAX_LABELS = 16
 MAX_LABEL_CHARS = 128
 MAX_SHORT_TEXT_CHARS = 128
+MAX_STORAGE_CHARS = 512
+MAX_DISK_THRESHOLD_GB = 100000.0
+DEFAULT_DISK_THRESHOLD_GB = 20.0
 
 
 class ApiResponseError(Exception):
@@ -205,6 +208,17 @@ def boolean(value: Any) -> bool:
     return False
 
 
+def disk_threshold(value: Any) -> float:
+    return max(0.0, min(MAX_DISK_THRESHOLD_GB, number(value, DEFAULT_DISK_THRESHOLD_GB)))
+
+
+def storage_path(value: Any) -> str:
+    result = text(value, limit=MAX_STORAGE_CHARS)
+    if not result.startswith("/") or any(ord(character) < 32 for character in result):
+        return ""
+    return result
+
+
 def progress(slot: dict[str, Any]) -> float:
     if "percentage" in slot:
         return max(0.0, min(100.0, number(slot.get("percentage"))))
@@ -233,12 +247,19 @@ def job(slot: dict[str, Any], *, done: bool = False) -> dict[str, Any]:
         "labels": labels(slot.get("labels")),
         "priority": text(slot.get("priority")),
         "retry_count": count(slot.get("retry"), 0),
+        "storage": storage_path(slot.get("storage")),
         "done": done,
         "failed": status == "Failed",
     }
 
 
-def snapshot(base_url: str, api_key: str, queue_limit: int, history_limit: int) -> dict[str, Any]:
+def snapshot(
+    base_url: str,
+    api_key: str,
+    queue_limit: int,
+    history_limit: int,
+    disk_threshold_gb: float = DEFAULT_DISK_THRESHOLD_GB,
+) -> dict[str, Any]:
     queue_data = section(api(base_url, api_key, mode="queue", start=0, limit=queue_limit), "queue")
     processing_statuses = "QuickCheck,Verifying,Repairing,Fetching,Extracting,Moving,Running,Queued"
     recent_statuses = "Completed,Failed"
@@ -294,7 +315,7 @@ def snapshot(base_url: str, api_key: str, queue_limit: int, history_limit: int) 
             "free_gb": round(disk_free_gb, 1),
             "free": text(queue_data.get("diskspace2_norm"))
             or text(queue_data.get("diskspace1_norm"), "Unknown"),
-            "low": 0 <= disk_free_gb < 20,
+            "low": 0 <= disk_free_gb < disk_threshold_gb,
         },
         "stages": {
             "download": queue_jobs,
@@ -316,7 +337,12 @@ def snapshot(base_url: str, api_key: str, queue_limit: int, history_limit: int) 
     }
 
 
-def demo_snapshot(state: str, queue_limit: int = 100, history_limit: int = 50) -> dict[str, Any]:
+def demo_snapshot(
+    state: str,
+    queue_limit: int = 100,
+    history_limit: int = 50,
+    disk_threshold_gb: float = DEFAULT_DISK_THRESHOLD_GB,
+) -> dict[str, Any]:
     if state == "not-configured":
         return {"ok": False, "state": "not-configured", "message": "Start SABnzbd once to create ~/.sabnzbd/sabnzbd.ini"}
     if state == "offline":
@@ -349,8 +375,8 @@ def demo_snapshot(state: str, queue_limit: int = 100, history_limit: int = 50) -
     download = [item for item in active if item["status"] in {"Downloading", "Queued", "Paused", "Failed"}]
     verify = [item for item in active if item["status"] in {"Verifying", "Repairing"}]
     recent = [
-        {"id": "recent-1", "name": "Frankenstein.1910.Library-of-Congress.mp4", "status": "Completed", "progress": 100.0, "category": "public-domain", "size": "248 MB", "sizeleft": "", "timeleft": "", "completed": "an hour ago", "done": True, "failed": False},
-        {"id": "recent-2", "name": "Nosferatu.1922.Public-Domain.1080p.mp4", "status": "Completed", "progress": 100.0, "category": "public-domain", "size": "1.8 GB", "sizeleft": "", "timeleft": "", "completed": "yesterday", "done": True, "failed": False},
+        {"id": "recent-1", "name": "Frankenstein.1910.Library-of-Congress.mp4", "status": "Completed", "progress": 100.0, "category": "public-domain", "size": "248 MB", "sizeleft": "", "timeleft": "", "completed": "an hour ago", "storage": "/home/user/Downloads/complete/Frankenstein.1910.Library-of-Congress", "done": True, "failed": False},
+        {"id": "recent-2", "name": "Nosferatu.1922.Public-Domain.1080p.mp4", "status": "Completed", "progress": 100.0, "category": "public-domain", "size": "1.8 GB", "sizeleft": "", "timeleft": "", "completed": "yesterday", "storage": "/home/user/Downloads/complete/Nosferatu.1922.Public-Domain.1080p", "done": True, "failed": False},
     ]
     if state == "clean":
         recent = []
@@ -367,11 +393,12 @@ def demo_snapshot(state: str, queue_limit: int = 100, history_limit: int = 50) -
     if paused:
         download = [{**jobs["downloading"][0], "status": "Paused"}]
     displayed_active_total = active_total if state == "large" else len(download) + len(verify)
+    free_gb = 12.6 if state == "failed" else 184.2
     return {
         "ok": True, "state": "demo", "web_url": "http://127.0.0.1:8080",
         "queue": {"status": "Paused" if paused else "Downloading", "paused": paused, "speed": "94.7 MB/s", "kbpersec": 96972.8, "timeleft": "0:18:42", "sizeleft": "25.3 GB", "jobs": download},
         "stages": {"download": download, "verify": verify, "unpack": [], "recent": recent},
-        "disk": {"free_gb": 12.6 if state == "failed" else 184.2, "free": "12.6 GB" if state == "failed" else "184.2 GB", "low": state == "failed"},
+        "disk": {"free_gb": free_gb, "free": f"{free_gb} GB", "low": 0 <= free_gb < disk_threshold_gb},
         "counts": {"download": len(download), "verify": len(verify), "unpack": 0, "recent": len(recent), "failed": sum(1 for item in recent if item["failed"]), "completed": sum(1 for item in recent if not item["failed"]), "active_total": displayed_active_total, "queue_total": active_total if state == "large" else len(download), "history_total": history_total},
     }
 
@@ -384,15 +411,17 @@ def main() -> None:
     parser.add_argument("--id", default="")
     parser.add_argument("--queue-limit", type=int, default=100)
     parser.add_argument("--history-limit", type=int, default=50)
+    parser.add_argument("--disk-threshold", type=float, default=DEFAULT_DISK_THRESHOLD_GB)
     args = parser.parse_args()
+    threshold = disk_threshold(args.disk_threshold)
 
     try:
         if args.action == "snapshot" and args.demo:
-            emit(demo_snapshot(args.demo, max(20, min(args.queue_limit, 1000)), max(20, min(args.history_limit, 1000))))
+            emit(demo_snapshot(args.demo, max(20, min(args.queue_limit, 1000)), max(20, min(args.history_limit, 1000)), threshold))
         config_path = find_config(args.config)
         base_url, api_key = connection(config_path)
         if args.action == "snapshot":
-            emit(snapshot(base_url, api_key, max(20, min(args.queue_limit, 1000)), max(20, min(args.history_limit, 1000))))
+            emit(snapshot(base_url, api_key, max(20, min(args.queue_limit, 1000)), max(20, min(args.history_limit, 1000)), threshold))
         if args.action == "auth":
             emit({"ok": True, "web_url": base_url})
         if args.action == "retry":

@@ -17,6 +17,12 @@ BarWidget {
   readonly property string demoState: String(setting("_demoState", ""))
   readonly property bool demoExpandFirst: Boolean(setting("_demoExpandFirst", false))
   readonly property bool demoExpandHistory: Boolean(setting("_demoExpandHistory", false))
+  readonly property string demoNotify: String(setting("_demoNotify", ""))
+  readonly property bool notifyCompletion: Boolean(setting("notifyOnCompletion", true))
+  readonly property bool notifyFailure: Boolean(setting("notifyOnFailure", true))
+  readonly property bool notifySound: Boolean(setting("notifySound", false))
+  readonly property real diskThresholdGb: Math.max(0, Number(setting("lowDiskThresholdGb", 20)))
+  readonly property string soundDir: "/usr/share/sounds/freedesktop/stereo"
 
   property var snapshot: ({
     ok: false,
@@ -36,6 +42,10 @@ BarWidget {
   property bool stale: false
   property bool snapshotTimedOut: false
   property double lastSuccessMs: 0
+  property var notifiedJobs: ({})
+  property bool notificationBaseline: false
+  property bool demoNotifiedOnce: false
+  property var pendingNotifications: []
 
   readonly property bool connected: snapshot && snapshot.ok === true
   readonly property bool actionable: connected && !stale
@@ -56,7 +66,7 @@ BarWidget {
     var command = [root.helperPath, action]
     if (root.configPath !== "") command.push("--config", root.configPath)
     if (action === "snapshot") {
-      command.push("--queue-limit", String(root.queueLimit), "--history-limit", String(root.historyLimit))
+      command.push("--queue-limit", String(root.queueLimit), "--history-limit", String(root.historyLimit), "--disk-threshold", String(root.diskThresholdGb))
       if (root.demoState !== "") command.push("--demo", root.demoState)
     }
     return command
@@ -127,6 +137,91 @@ BarWidget {
     actionProc.running = true
   }
 
+  function clipText(value, limit) {
+    var result = String(value || "")
+    if (result.length > limit) result = result.substring(0, limit - 1) + "…"
+    return result
+  }
+
+  function processNotifications(nextSnapshot) {
+    var stages = nextSnapshot && nextSnapshot.stages
+    if (!stages) return
+    if (root.demoState !== "" && root.demoNotify !== "" && !root.demoNotifiedOnce) {
+      root.demoNotifiedOnce = true
+      if ((root.demoNotify === "completed" || root.demoNotify === "both") && root.notifyCompletion)
+        root.queueNotification("Download complete", "omarchy-4.0.0.iso  ·  5.8 GB", false)
+      if ((root.demoNotify === "failed" || root.demoNotify === "both") && root.notifyFailure)
+        root.queueNotification("Download failed", "omarchy-4.0.0.iso  ·  Repair failed, not enough repair blocks (142 short)", true)
+    }
+    var recent = stages.recent || []
+    var seen = {}
+    var index
+    for (index = 0; index < recent.length; index++) {
+      var seenId = String(recent[index].id || "")
+      if (seenId) seen[seenId] = true
+    }
+    if (!root.notificationBaseline) {
+      root.notificationBaseline = true
+      root.notifiedJobs = seen
+      return
+    }
+    var fresh = []
+    for (index = 0; index < recent.length; index++) {
+      var item = recent[index]
+      var itemId = String(item.id || "")
+      if (itemId && !root.notifiedJobs[itemId]) fresh.push(item)
+    }
+    root.notifiedJobs = seen
+    if (fresh.length === 0 || root.opened) return
+    var failures = 0
+    for (index = 0; index < fresh.length; index++) if (fresh[index].failed === true) failures++
+    if (fresh.length > 5) {
+      root.queueNotification("Download updates", fresh.length + " downloads finished" + (failures > 0 ? "  ·  " + failures + " failed" : ""), failures > 0)
+      return
+    }
+    for (index = 0; index < fresh.length; index++) {
+      var job = fresh[index]
+      var failed = job.failed === true
+      if (failed ? !root.notifyFailure : !root.notifyCompletion) continue
+      var body = clipText(job.name, 90)
+      if (job.size) body += "  ·  " + clipText(job.size, 24)
+      root.queueNotification(failed ? "Download failed" : "Download complete", body, failed)
+    }
+  }
+
+  function queueNotification(summary, body, urgent) {
+    pendingNotifications.push({ summary: summary, body: body, urgent: urgent })
+    dispatchNotifications()
+  }
+
+  function dispatchNotifications() {
+    if (notifyProc.running || pendingNotifications.length === 0) return
+    var notification = pendingNotifications.shift()
+    notifyProc.command = [
+      "notify-send", "-a", "SABarchy",
+      "-u", notification.urgent ? "critical" : "normal",
+      "-t", notification.urgent ? "0" : "6000",
+      "-i", notification.urgent ? "dialog-error" : "folder-download",
+      notification.summary, notification.body
+    ]
+    notifyProc.running = true
+    if (root.notifySound && !soundProc.running) {
+      soundProc.command = ["pw-play", notification.urgent ? root.soundDir + "/dialog-error.oga" : root.soundDir + "/complete.oga"]
+      soundProc.running = true
+    }
+  }
+
+  function openFolder(path) {
+    var target = String(path || "")
+    if (!target || target.charAt(0) !== "/") return
+    if (root.demoState !== "") {
+      demoActionTimer.restart()
+      return
+    }
+    folderProc.command = ["xdg-open", target]
+    folderProc.running = true
+  }
+
   function open() { if (panelLoader.item) panelLoader.item.open() }
   function close() { if (panelLoader.item) panelLoader.item.close() }
   function toggle() { if (panelLoader.item) panelLoader.item.toggle() }
@@ -169,6 +264,7 @@ BarWidget {
             root.stale = false
             root.lastSuccessMs = Date.now()
             root.lastError = ""
+            root.processNotifications(nextSnapshot)
           } else {
             root.lastError = String(nextSnapshot.message || "SABnzbd unavailable")
             root.stale = root.hasGoodSnapshot
@@ -201,6 +297,19 @@ BarWidget {
 
   Timer { id: actionClearTimer; interval: 3000; onTriggered: { root.actionJobId = ""; root.actionStatus = "" } }
   Timer { id: demoActionTimer; interval: 650; onTriggered: { root.actionStatus = "accepted"; actionClearTimer.restart() } }
+
+  Process {
+    id: notifyProc
+    onExited: dispatchNotifications()
+  }
+
+  Process {
+    id: soundProc
+  }
+
+  Process {
+    id: folderProc
+  }
   Timer {
     id: snapshotTimeout
     interval: 12000

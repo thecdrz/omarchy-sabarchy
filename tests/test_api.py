@@ -441,6 +441,70 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(result.returncode, 4)
         self.assertEqual(json.loads(result.stdout)["state"], "configuration-error")
 
+    def test_disk_threshold_controls_low_warning(self):
+        ApiHandler.queue = {"diskspace1": "12.6", "diskspace2": "12.6"}
+        cases = [
+            ([], True),
+            (["--disk-threshold", "20"], True),
+            (["--disk-threshold", "10"], False),
+            (["--disk-threshold", "0"], False),
+            (["--disk-threshold", "500"], True),
+        ]
+        for extra_args, expected_low in cases:
+            with self.subTest(extra_args=extra_args):
+                result = self.run_snapshot(*extra_args)
+                self.assertEqual(result.returncode, 0)
+                self.assertEqual(json.loads(result.stdout)["disk"]["low"], expected_low)
+
+    def test_disk_threshold_is_clamped_to_safe_bounds(self):
+        for raw_threshold in ("nan", "-5", "999999999"):
+            with self.subTest(raw_threshold=raw_threshold):
+                result = self.run_snapshot("--disk-threshold", raw_threshold)
+                self.assertEqual(result.returncode, 0)
+                payload = json.loads(result.stdout)
+                self.assertEqual(payload["disk"]["free_gb"], -1)
+                self.assertFalse(payload["disk"]["low"])
+
+    def test_history_storage_paths_are_sanitized(self):
+        oversized = "/" + "s" * 4096
+        ApiHandler.recent_history = {
+            "slots": [
+                {"nzo_id": "stored", "name": "Stored", "status": "Completed", "storage": "/data/complete/Stored"},
+                {"nzo_id": "remote", "name": "Remote", "status": "Completed", "storage": "file:///etc/passwd"},
+                {"nzo_id": "control", "name": "Control", "status": "Completed", "storage": "/data/complete/bad\npath"},
+                {"nzo_id": "oversized", "name": "Oversized", "status": "Completed", "storage": oversized},
+                {"nzo_id": "missing", "name": "Missing", "status": "Completed"},
+            ]
+        }
+        ApiHandler.queue = {"slots": [{"nzo_id": "queue-1", "name": "Queue", "status": "Downloading"}]}
+
+        result = self.run_snapshot()
+
+        self.assertEqual(result.returncode, 0)
+        recent = {item["id"]: item for item in json.loads(result.stdout)["stages"]["recent"]}
+        self.assertEqual(recent["stored"]["storage"], "/data/complete/Stored")
+        self.assertEqual(recent["remote"]["storage"], "")
+        self.assertEqual(recent["control"]["storage"], "")
+        self.assertEqual(len(recent["oversized"]["storage"]), 512)
+        self.assertEqual(recent["missing"]["storage"], "")
+        self.assertEqual(json.loads(result.stdout)["stages"]["download"][0]["storage"], "")
+
+    def test_demo_snapshot_respects_disk_threshold(self):
+        for extra_args, expected_low in [(["--disk-threshold", "20"], True), (["--disk-threshold", "5"], False)]:
+            with self.subTest(extra_args=extra_args):
+                result = self.run_snapshot("--demo", "failed", *extra_args)
+                self.assertEqual(result.returncode, 0)
+                payload = json.loads(result.stdout)
+                self.assertEqual(payload["disk"]["low"], expected_low)
+
+    def test_demo_completed_history_carries_storage_paths(self):
+        result = self.run_snapshot("--demo", "downloading")
+
+        self.assertEqual(result.returncode, 0)
+        recent = json.loads(result.stdout)["stages"]["recent"]
+        self.assertTrue(recent)
+        self.assertTrue(all(item["storage"].startswith("/") for item in recent if not item["failed"]))
+
 
 if __name__ == "__main__":
     unittest.main()
