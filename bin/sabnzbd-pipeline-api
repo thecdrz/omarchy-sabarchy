@@ -360,9 +360,7 @@ def demo_snapshot(
             {"id": "demo-1", "name": "omarchy-4.0.0.iso", "status": "Downloading", "progress": 63.0, "category": "omarchy", "size": "5.8 GB", "sizeleft": "2.1 GB", "timeleft": "0:03:42", "completed": "", "done": False, "failed": False}
         ],
         "processing": [
-            {"id": "demo-1", "name": "omarchy-4.0.0.iso", "status": "Downloading", "progress": 63.0, "category": "omarchy", "size": "5.8 GB", "sizeleft": "2.1 GB", "timeleft": "0:03:42", "completed": "", "done": False, "failed": False},
             {"id": "demo-2", "name": "omarchy-4.0.0.iso", "status": "Verifying", "progress": 82.0, "category": "omarchy", "size": "5.8 GB", "sizeleft": "", "timeleft": "0:02:11", "completed": "", "done": False, "failed": False},
-            {"id": "demo-2b", "name": "Linux.Kernel.Source.6.12.tar", "status": "Extracting", "progress": 54.0, "category": "archives", "size": "1.2 GB", "sizeleft": "", "timeleft": "", "completed": "", "done": False, "failed": False},
         ],
         "multiple": [
             {"id": "demo-3", "name": "omarchy-4.0.0.iso", "status": "Downloading", "progress": 41.0, "category": "omarchy", "size": "5.8 GB", "sizeleft": "3.4 GB", "timeleft": "0:06:09", "completed": "", "done": False, "failed": False},

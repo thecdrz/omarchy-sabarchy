@@ -13,7 +13,7 @@ Living plan for feature and visual work. Update this as items ship or priorities
 
 - 0.6.0 milestone: notifications, open-folder, disk threshold, `url_base` fix
 - Bar failure indicator and processing-aware tooltips
-- Split verify/unpack processing sections
+- Split verify/unpack processing sections → single active list with stage-colored status pills
 - Stage color system and expanded history details
 - Notification click opens panel
 
@@ -30,11 +30,10 @@ Living plan for feature and visual work. Update this as items ship or priorities
 | Item | Status |
 |------|--------|
 | Bar failure indicator | Done |
-| Dedicated Processing section (verify vs unpack) | Done |
+| Single active list with stage-colored status | Done |
 | Expanded history details | Done |
 | Notification click opens panel | Done |
 | Stage color system | Done |
-| Compact verify/unpack processing rows | Done |
 | Fresh marketplace screenshots | Pending |
 | Push + marketplace submit | Pending |
 

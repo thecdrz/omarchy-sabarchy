@@ -26,7 +26,7 @@ Existing shots live under `docs/screenshots/`. Overwrite in place when new captu
 
 **Recommended for 0.7.0** (optional fourth/fifth marketplace images or README):
 
-- Split **VERIFYING** and **UNPACKING** sections with active jobs (`--demo processing`)
+- Verifying / unpacking status on a single active job card (`--demo processing`)
 - Expanded failed history row with retry count and failure message (`--demo failed` + expand history)
 - Bar failure indicator dot with issues filter selected
 - Notification preview (`"_demoNotify": "both"`)
@@ -47,7 +47,7 @@ Existing shots live under `docs/screenshots/`. Overwrite in place when new captu
 - [x] `manifest.json` version is `0.7.0`
 - [x] `CHANGELOG.md` has a `[0.7.0]` section
 - [x] Helper tests pass on a clean checkout
-- [ ] Fresh screenshots for processing / failure UX (overwrite `docs/screenshots/` as needed)
+- [x] Fresh screenshots for processing / failure UX (overwrite `docs/screenshots/` as needed)
 - [ ] Fresh `omarchy plugin add … --enable` connects to a default `~/.sabnzbd/sabnzbd.ini` install
 - [x] GitHub release notes pasted from `CHANGELOG.md`
 
