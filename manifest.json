@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.thecdrz.sabarchy",
   "name": "SABarchy",
-  "version": "0.5.5",
+  "version": "0.6.0",
   "author": "thecdrz",
   "license": "MIT",
   "description": "A keyboard-first SABnzbd queue, history, and recovery dashboard for Omarchy Quattro.",
@@ -18,7 +18,11 @@
     "defaultSection": "right",
     "defaults": {
       "refreshSeconds": 3,
-      "configPath": ""
+      "configPath": "",
+      "notifyOnCompletion": true,
+      "notifyOnFailure": true,
+      "notifySound": false,
+      "lowDiskThresholdGb": 20
     },
     "schema": [
       {
@@ -26,12 +30,43 @@
         "type": "integer",
         "label": "Refresh interval (seconds)",
         "min": 2,
-        "max": 60
+        "max": 60,
+        "defaultValue": 3
       },
       {
         "key": "configPath",
         "type": "string",
         "label": "SABnzbd config path (blank for auto-detect)"
+      },
+      {
+        "key": "notifyOnCompletion",
+        "type": "boolean",
+        "label": "Notify when a download completes",
+        "description": "Sends a desktop notification while the panel is closed.",
+        "defaultValue": true
+      },
+      {
+        "key": "notifyOnFailure",
+        "type": "boolean",
+        "label": "Notify when a download fails",
+        "description": "Sends a critical desktop notification while the panel is closed.",
+        "defaultValue": true
+      },
+      {
+        "key": "notifySound",
+        "type": "boolean",
+        "label": "Play a sound with notifications",
+        "description": "Uses the freedesktop sound theme through PipeWire.",
+        "defaultValue": false
+      },
+      {
+        "key": "lowDiskThresholdGb",
+        "type": "integer",
+        "label": "Low disk warning (GB)",
+        "description": "Warns when SABnzbd reports less free space than this. Set to 0 to disable.",
+        "min": 0,
+        "max": 2000,
+        "defaultValue": 20
       }
     ]
   }

@@ -21,6 +21,8 @@ compact theme-aware panel.
 ## Features
 
 - Live queue speed, ETA, state, and job progress
+- Desktop notifications for finished and failed downloads, with an optional sound
+- Open a completed job's folder straight from the history
 - Responsive 620–960px layout with virtualized, bounded queue and history lists
 - Incremental loading for large queues and histories
 - Pause and resume from the bar or panel
@@ -28,7 +30,7 @@ compact theme-aware panel.
 - Keyboard navigation for selecting, expanding, pausing, and collapsing jobs
 - A guided first-run state when SABnzbd has not been configured yet
 - Preserve the last good snapshot during temporary disconnects and show its age
-- Warn when SABnzbd reports less than 20 GB free disk space
+- Warn when SABnzbd reports less free disk space than the configured threshold
 - Filter completed jobs and issues, retry failures, and archive completed history after confirmation
 - Opens the SABnzbd web interface directly
 - Reads the API key from the local SABnzbd configuration; credentials never
@@ -64,6 +66,7 @@ omarchy plugin enable io.github.thecdrz.sabarchy
 - Right click the widget to pause or resume the queue
 - `r` refreshes the panel
 - `O` opens SABnzbd
+- `f` opens the selected completed job's folder
 - `Up`/`Down` or `j`/`k` move through the active queue and recent history
 - `Enter` or `Space` expands or collapses the selected job
 - `p` pauses or resumes the selected active job
@@ -78,6 +81,16 @@ The widget auto-detects `~/.sabnzbd/sabnzbd.ini` and
 `~/.config/sabnzbd/sabnzbd.ini`. If SABnzbd uses another location, set
 **SABnzbd config path** in the Omarchy bar settings. The refresh interval
 defaults to three seconds.
+
+Notifications fire for downloads that finish or fail while the panel is closed;
+the first snapshot after a reload only builds a baseline, so existing history
+never triggers a burst. Failures arrive as critical notifications, and more than
+five finished jobs collapse into one summary. **Play a sound with
+notifications** uses the freedesktop sound theme through PipeWire.
+
+**Low disk warning (GB)** defaults to 20 and accepts 0 to disable the warning
+entirely. **Open folder** actions launch `xdg-open` on the absolute local path
+SABnzbd reports for a completed job.
 
 ## Security
 
@@ -115,6 +128,11 @@ Add `"_demoCompact": true` alongside it to force the 620px compact layout. Fixtu
 `"_demoExpandFirst": true` expands the first active job. `"_demoStale": true`
 previews the retained-data state. The `failed` fixture also exercises the
 low-disk warning. `"_demoExpandHistory": true` expands the first history item.
+
+`"_demoNotify": "completed"`, `"failed"`, or `"both"` sends sample notifications
+once the demo snapshot loads, so notification appearance can be checked without
+a live download. Fixture retry and open-folder actions are simulated and never
+sent to SABnzbd or passed to `xdg-open`.
 
 Run the helper tests with `python -m unittest discover -s tests -v`.
 
