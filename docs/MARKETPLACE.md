@@ -49,7 +49,7 @@ Existing shots live under `docs/screenshots/`. Overwrite in place when new captu
 - [x] Helper tests pass on a clean checkout
 - [ ] Fresh screenshots for processing / failure UX (overwrite `docs/screenshots/` as needed)
 - [ ] Fresh `omarchy plugin add … --enable` connects to a default `~/.sabnzbd/sabnzbd.ini` install
-- [ ] GitHub release notes pasted from `CHANGELOG.md`
+- [x] GitHub release notes pasted from `CHANGELOG.md`
 
 ## After publish
 
