@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# Prepare SABarchy demo state, then capture a 960px-wide bar+panel shot manually.
+set -euo pipefail
+
+WIDGET="io.github.thecdrz.sabarchy"
+DEMO="${1:-processing}"
+OUT="${2:-}"
+
+usage() {
+  cat <<EOF
+Usage: bin/capture-screenshot <demo-state> [output.png]
+
+Demo states: downloading, processing, failed, clean, paused, multiple
+
+Prepares the widget, restarts the shell, opens the panel, then launches the
+Omarchy region screenshot flow. Drag a box around the top bar + SABarchy panel
+(about 960px wide). Without an output path, the saved file path is printed.
+
+Tips:
+  - Move or minimize windows behind the panel first.
+  - Use processing for VERIFYING + UNPACKING rows; failed for retry/disk shots.
+  - Clear demo keys after capture:
+      omarchy bar set $WIDGET _demoState '""' --json
+      omarchy-restart-shell
+EOF
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+case "$DEMO" in
+  downloading|processing|failed|clean|paused|multiple) ;;
+  *) echo "Unknown demo state: $DEMO" >&2; usage; exit 1 ;;
+esac
+
+json() { jq -n --arg value "$1" '$value'; }
+
+omarchy bar set "$WIDGET" _demoState "$(json "$DEMO")" --json
+if [[ "$DEMO" == "failed" ]]; then
+  omarchy bar set "$WIDGET" _demoExpandHistory true --json
+else
+  omarchy bar set "$WIDGET" _demoExpandHistory false --json
+fi
+
+omarchy-restart-shell
+sleep 2
+omarchy shell "$WIDGET" open
+sleep 1
+
+if [[ -n "$OUT" ]]; then
+  export OMARCHY_SCREENSHOT_DIR="$(dirname "$OUT")"
+  saved="$(omarchy capture screenshot region save)"
+  mv "$saved" "$OUT"
+  echo "Saved $OUT"
+else
+  omarchy capture screenshot region save
+fi

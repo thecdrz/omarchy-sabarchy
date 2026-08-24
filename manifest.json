@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.thecdrz.sabarchy",
   "name": "SABarchy",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "author": "thecdrz",
   "license": "MIT",
   "description": "A keyboard-first SABnzbd queue, history, and recovery dashboard for Omarchy Quattro.",

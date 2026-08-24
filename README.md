@@ -21,7 +21,11 @@ compact theme-aware panel.
 ## Features
 
 - Live queue speed, ETA, state, and job progress
+- Split downloading, verifying, and unpacking sections in the active pipeline
+- Stage-aware colors for download, verify, unpack, and failure states
+- Bar failure indicator when history issues need attention
 - Desktop notifications for finished and failed downloads, with an optional sound
+- Click a notification to open the SABarchy panel
 - Open a completed job's folder straight from the history
 - Responsive 620–960px layout with virtualized, bounded queue and history lists
 - Incremental loading for large queues and histories

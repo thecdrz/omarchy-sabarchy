@@ -36,6 +36,12 @@ BarWidget {
   property bool refreshing: false
   property string actionJobId: ""
   property string actionStatus: ""
+  readonly property string actionFeedback: {
+    var status = String(actionStatus || "")
+    if (status === "pausing" || status === "resuming" || status === "retrying" || status === "clearing" || status === "failed")
+      return status
+    return ""
+  }
   property int queueLimit: 100
   property int historyLimit: 50
   property bool hasGoodSnapshot: false
@@ -57,6 +63,11 @@ BarWidget {
         ? snapshot.counts.active_total
         : Number(snapshot.counts.download || 0) + Number(snapshot.counts.verify || 0) + Number(snapshot.counts.unpack || 0))
     : 0
+  readonly property int issueCount: connected && snapshot.counts ? Number(snapshot.counts.failed || 0) : 0
+  readonly property bool hasFailures: issueCount > 0
+  readonly property int verifyCount: connected && snapshot.counts ? Number(snapshot.counts.verify || 0) : 0
+  readonly property int unpackCount: connected && snapshot.counts ? Number(snapshot.counts.unpack || 0) : 0
+  readonly property bool isProcessing: verifyCount > 0 || unpackCount > 0
 
   readonly property bool opened: panelLoader.item ? panelLoader.item.opened === true : false
   readonly property bool popoutSwitchClosing: panelLoader.item ? panelLoader.item.popoutSwitchClosing === true : false
@@ -87,6 +98,8 @@ BarWidget {
       demoActionTimer.restart()
       return
     }
+    actionJobId = "__queue__"
+    actionStatus = action === "pause" ? "pausing" : "resuming"
     actionProc.command = helperCommand(action)
     actionTimeout.restart()
     actionProc.running = true
@@ -198,7 +211,8 @@ BarWidget {
     if (notifyProc.running || pendingNotifications.length === 0) return
     var notification = pendingNotifications.shift()
     notifyProc.command = [
-      "notify-send", "-a", "SABarchy",
+      "notify-send", "-a", "SABarchy", "--wait",
+      "--action=default:Open",
       "-u", notification.urgent ? "critical" : "normal",
       "-t", notification.urgent ? "0" : "6000",
       "-i", notification.urgent ? "dialog-error" : "folder-download",
@@ -222,6 +236,26 @@ BarWidget {
     folderProc.running = true
   }
 
+  function resetActionFeedback() {
+    actionTimeout.stop()
+    actionClearTimer.stop()
+    demoActionTimer.stop()
+    actionJobId = ""
+    actionStatus = ""
+  }
+
+  function finishAction(exitCode) {
+    actionTimeout.stop()
+    if (exitCode === 0) {
+      resetActionFeedback()
+    } else {
+      actionJobId = ""
+      actionStatus = "failed"
+      actionClearTimer.restart()
+    }
+    Qt.callLater(root.refresh)
+  }
+
   function open() { if (panelLoader.item) panelLoader.item.open() }
   function close() { if (panelLoader.item) panelLoader.item.close() }
   function toggle() { if (panelLoader.item) panelLoader.item.toggle() }
@@ -241,6 +275,11 @@ BarWidget {
 
   onBarChanged: injectPanel()
   onSettingsChanged: refreshTimer.restart()
+  onActionStatusChanged: {
+    if (actionStatus === "accepted")
+      resetActionFeedback()
+  }
+  Component.onCompleted: resetActionFeedback()
 
   Process {
     id: snapshotProc
@@ -288,18 +327,21 @@ BarWidget {
     id: actionProc
     stdout: StdioCollector { waitForEnd: true }
     onExited: function(exitCode) {
-      actionTimeout.stop()
-      root.actionStatus = exitCode === 0 ? "accepted" : "failed"
-      Qt.callLater(root.refresh)
-      actionClearTimer.restart()
+      root.finishAction(exitCode)
     }
   }
 
   Timer { id: actionClearTimer; interval: 3000; onTriggered: { root.actionJobId = ""; root.actionStatus = "" } }
-  Timer { id: demoActionTimer; interval: 650; onTriggered: { root.actionStatus = "accepted"; actionClearTimer.restart() } }
+  Timer { id: demoActionTimer; interval: 650; onTriggered: { root.actionJobId = ""; root.actionStatus = "" } }
 
   Process {
     id: notifyProc
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        if (String(text || "").trim() === "default") root.open()
+      }
+    }
     onExited: dispatchNotifications()
   }
 
@@ -327,9 +369,8 @@ BarWidget {
     interval: 6000
     onTriggered: {
       if (!actionProc.running) return
-      root.actionStatus = "failed"
       actionProc.running = false
-      actionClearTimer.restart()
+      root.finishAction(1)
     }
   }
 
@@ -356,10 +397,16 @@ BarWidget {
   function statusTooltip(): string {
     if (!root.connected)
       return "SABnzbd · Unavailable"
+    if (root.hasFailures)
+      return "SABnzbd · " + root.issueCount + (root.issueCount === 1 ? " failure needs attention" : " failures need attention")
     if (root.paused)
       return "SABnzbd · Paused"
-    if (root.activeCount > 0)
-      return "SABnzbd · " + root.activeCount + (root.activeCount === 1 ? " active job" : " active jobs")
+    if (root.activeCount > 0) {
+      var detail = root.activeCount + (root.activeCount === 1 ? " active job" : " active jobs")
+      if (root.isProcessing)
+        detail += "  ·  " + (root.verifyCount > 0 ? root.verifyCount + " verifying" : "") + (root.verifyCount > 0 && root.unpackCount > 0 ? ", " : "") + (root.unpackCount > 0 ? root.unpackCount + " unpacking" : "")
+      return "SABnzbd · " + detail
+    }
     return "SABnzbd · Idle"
   }
 
@@ -391,17 +438,34 @@ BarWidget {
     fixedWidth: !root.vertical ? (root.showSpeed ? speedContent.implicitWidth + Style.space(16) : Style.bar.iconSlot) : -1
     fixedHeight: root.vertical ? Style.bar.iconSlot : -1
     tooltipText: root.statusTooltip()
-    active: !root.connected || root.paused
+    active: !root.connected || root.paused || root.hasFailures
     activeColor: Color.urgent
     Row {
       id: speedContent
       anchors.centerIn: parent
       spacing: Style.space(6)
-      SabarchyIcon {
+      Item {
         width: Style.space(18)
         height: width
         anchors.verticalCenter: parent.verticalCenter
-        iconColor: button.active && button.useActiveColor ? button.activeColor : button.foreground
+        SabarchyIcon {
+          id: barIcon
+          anchors.centerIn: parent
+          width: Style.space(18)
+          height: width
+          iconColor: button.active && button.useActiveColor ? button.activeColor : button.foreground
+        }
+        Rectangle {
+          visible: root.hasFailures && root.connected
+          width: Style.space(7)
+          height: width
+          radius: width / 2
+          color: Color.urgent
+          anchors.top: barIcon.top
+          anchors.right: barIcon.right
+          anchors.topMargin: -Style.space(1)
+          anchors.rightMargin: -Style.space(1)
+        }
       }
       Text { textFormat: Text.PlainText;
         visible: root.showSpeed && !root.vertical

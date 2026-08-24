@@ -2,6 +2,26 @@
 
 All notable changes to SABarchy are documented here.
 
+## [0.7.0] — 2026-08-24
+
+### Added
+
+- Bar failure indicator when unresolved failed history items need attention.
+- Split **Downloading**, **Verifying**, and **Unpacking** sections in the active pipeline panel.
+- Stage-aware job colors for download, verify, unpack, and failure states.
+- Richer expanded history rows with retry count, failure message, and storage path.
+- Notification click opens the SABarchy panel (`notify-send --wait --action=default:Open`).
+
+### Changed
+
+- Bar tooltip summarizes verify/unpack activity and failure counts.
+- Processing demo fixture exercises both verify and unpack stages.
+- Verify and unpack jobs use compact single-line processing rows instead of full download cards.
+
+### Fixed
+
+- Pause/resume no longer leaves a sticky **ACCEPTED** label in the panel footer after queue actions succeed.
+
 ## [0.6.0] — 2026-08-24
 
 ### Fixed

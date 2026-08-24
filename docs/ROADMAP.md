@@ -6,37 +6,41 @@ Living plan for feature and visual work. Update this as items ship or priorities
 
 | Track | Version | Where |
 |-------|---------|-------|
-| **Ready to publish** | 0.6.0 | Repo `main` (pending push / marketplace submit) |
-| **Previously published** | 0.5.5 | Last marketplace release |
+| **Published (marketplace)** | 0.5.5 | Only public release today |
+| **In development (`main`)** | 0.7.0 | Next marketplace release |
 
-### Shipped in 0.6.0 (repo)
+### On `main` for 0.7.0
 
-- Everything from 0.5.5, plus:
-- Desktop notifications (completion / failure, optional sound)
-- Configurable low-disk threshold
-- Open completed download folder (`f` key, history action)
-- `storage` path in helper + demo coverage
-- `_demoNotify` fixture for notification screenshots
-- Fix for quoted-empty SABnzbd INI values (`url_base = ""`)
+- 0.6.0 milestone: notifications, open-folder, disk threshold, `url_base` fix
+- Bar failure indicator and processing-aware tooltips
+- Split verify/unpack processing sections
+- Stage color system and expanded history details
+- Notification click opens panel
+
+**Release strategy:** No hotfix rush. Only 0.5.5 is public; ship one substantial 0.7.0 marketplace update.
 
 ---
 
 ## Release plan
 
-### 0.6.0 — Stabilize & ship WIP
+### 0.7.0 — Next marketplace release
 
-**Status:** Code merged in repo; push to GitHub and update marketplace listing.
+**Status:** Code complete on `main`; fresh screenshots remain before marketplace submit.
 
 | Item | Status |
 |------|--------|
-| Fix quoted-empty `url_base` parsing | Done |
-| Merge 0.6.0 manifest + QML + helper | Done |
-| Sync README + SECURITY | Done |
-| Add `CHANGELOG.md` | Done |
-| Add `docs/MARKETPLACE.md` | Done |
-| Refresh marketplace screenshots | Pending (optional before submit) |
-| Run full test suite | Done |
-| Push to GitHub + marketplace submit | Pending |
+| Bar failure indicator | Done |
+| Dedicated Processing section (verify vs unpack) | Done |
+| Expanded history details | Done |
+| Notification click opens panel | Done |
+| Stage color system | Done |
+| Compact verify/unpack processing rows | Done |
+| Fresh marketplace screenshots | Pending |
+| Push + marketplace submit | Pending |
+
+### 0.6.0 — Development milestone (done)
+
+Merged WIP + connection fix to `main`. Not submitted to marketplace.
 
 ---
 
