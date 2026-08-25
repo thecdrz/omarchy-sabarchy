@@ -366,9 +366,7 @@ def demo_snapshot(
             {"id": "demo-3", "name": "omarchy-4.0.0.iso", "status": "Downloading", "progress": 41.0, "category": "omarchy", "size": "5.8 GB", "sizeleft": "3.4 GB", "timeleft": "0:06:09", "completed": "", "done": False, "failed": False},
             {"id": "demo-4", "name": "Frankenstein.1910.Library-of-Congress.mp4", "status": "Queued", "progress": 0.0, "category": "public-domain", "size": "248 MB", "sizeleft": "248 MB", "timeleft": "", "completed": "", "done": False, "failed": False},
         ],
-        "failed": [
-            {"id": "demo-5", "name": "omarchy-4.0.0.iso", "status": "Failed", "progress": 71.0, "category": "omarchy", "size": "5.8 GB", "sizeleft": "1.7 GB", "timeleft": "", "completed": "", "done": False, "failed": True}
-        ],
+        "failed": [],
     }
     if state == "large":
         active = []
@@ -380,7 +378,7 @@ def demo_snapshot(
     active_total = len(active)
     if state == "large":
         active = active[:queue_limit]
-    download = [item for item in active if item["status"] in {"Downloading", "Queued", "Paused", "Failed"}]
+    download = [item for item in active if item["status"] in {"Downloading", "Queued", "Paused"}]
     verify = [item for item in active if item["status"] in {"Verifying", "Repairing", "QuickCheck"}]
     unpack = [item for item in active if item["status"] in {"Extracting", "Moving", "Running"}]
     recent = [

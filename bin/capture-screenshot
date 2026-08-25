@@ -49,10 +49,21 @@ sleep 2
 omarchy shell "$WIDGET" open
 sleep 1
 
+# Omarchy's screenshot tool runs `pkill slurp && exit 0` first: any leftover
+# region picker from a cancelled/hung capture makes the next call exit with
+# no path. Clear stale pickers, then start a fresh one.
+pkill -x slurp 2>/dev/null || true
+sleep 0.2
+
 if [[ -n "$OUT" ]]; then
-  export OMARCHY_SCREENSHOT_DIR="$(dirname "$OUT")"
-  saved="$(omarchy capture screenshot region save)"
-  mv "$saved" "$OUT"
+  export OMARCHY_SCREENSHOT_DIR="$(cd "$(dirname "$OUT")" && pwd)"
+  mkdir -p "$OMARCHY_SCREENSHOT_DIR"
+  saved="$(omarchy capture screenshot region save || true)"
+  if [[ -z "${saved:-}" || ! -f "$saved" ]]; then
+    echo "Screenshot cancelled or failed (no file saved). Drag a region when the picker appears; Esc cancels." >&2
+    exit 1
+  fi
+  mv -f "$saved" "$OUT"
   echo "Saved $OUT"
 else
   omarchy capture screenshot region save

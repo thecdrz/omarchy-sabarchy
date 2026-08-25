@@ -527,28 +527,42 @@ Panel {
                 readonly property bool canOpen: !failedItem && Boolean(recentCard.modelData.storage)
                 readonly property int retryCount: Number(recentCard.modelData.retry_count || 0)
                 width: recentList.width
-                height: (recentCard.failedItem ? Style.space(68) : Style.space(44)) + (expanded ? (recentCard.failedItem ? Style.space(78) : Style.space(52)) : 0)
+                height: (recentCard.failedItem ? Style.space(50) : Style.space(44)) + (expanded ? Style.space(22) : 0)
                 radius: Math.max(3, Style.cornerRadius - 2)
                 color: selected ? Qt.rgba(recentCard.itemColor.r, recentCard.itemColor.g, recentCard.itemColor.b, 0.11) : (recentCard.failedItem ? Qt.rgba(Color.urgent.r, Color.urgent.g, Color.urgent.b, 0.06) : "transparent")
                 border.width: selected ? Style.spacing.hairline : 0; border.color: recentCard.itemColor
                 Behavior on height { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
                 Row {
-                  anchors.fill: parent; anchors.margins: Style.space(9); spacing: Style.space(10)
-                  Text { textFormat: Text.PlainText; anchors.verticalCenter: parent.verticalCenter; text: root.statusIcon(recentCard.modelData.status); color: recentCard.itemColor; font.family: root.contentFontFamily; font.pixelSize: Style.font.body }
+                  anchors.fill: parent; anchors.leftMargin: Style.space(9); anchors.rightMargin: Style.space(9); anchors.topMargin: Style.space(7); anchors.bottomMargin: Style.space(7); spacing: Style.space(10)
+                  Text { textFormat: Text.PlainText; anchors.verticalCenter: parent.verticalCenter; text: root.statusIcon(recentCard.modelData.status); color: recentCard.itemColor; font.family: root.contentFontFamily; font.pixelSize: Style.font.bodySmall }
                   Column {
-                    anchors.verticalCenter: parent.verticalCenter; width: parent.width - retryButton.width - Style.space(52); spacing: Style.space(4)
+                    anchors.verticalCenter: parent.verticalCenter; width: parent.width - retryButton.width - Style.space(48); spacing: Style.space(2)
                     Text { textFormat: Text.PlainText; width: parent.width; text: String(recentCard.modelData.name || "Untitled"); elide: Text.ElideMiddle; color: root.contentForeground; font.family: root.contentFontFamily; font.pixelSize: Style.font.bodySmall; font.bold: recentCard.failedItem; MouseArea { anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: { root.focusSection = "history"; root.historyIndex = recentCard.index; root.expandedHistoryId = recentCard.expanded ? "" : String(recentCard.modelData.id) } } }
                     Text { textFormat: Text.PlainText; visible: recentCard.failedItem && !recentCard.expanded; width: parent.width; text: String(recentCard.modelData.failure || "SABnzbd reported an unspecified failure"); elide: Text.ElideRight; color: Qt.darker(root.contentForeground, 1.4); font.family: root.contentFontFamily; font.pixelSize: Style.font.caption }
-                    Text { textFormat: Text.PlainText; visible: recentCard.expanded; width: parent.width; text: String(recentCard.modelData.category || "Uncategorized").toUpperCase() + "  ·  " + String(recentCard.modelData.size || "Unknown size") + (recentCard.modelData.completed ? "  ·  " + String(recentCard.modelData.completed) : ""); elide: Text.ElideRight; color: Qt.darker(root.contentForeground, 1.45); font.family: root.contentFontFamily; font.pixelSize: Style.font.caption; font.bold: true }
-                    Text { textFormat: Text.PlainText; visible: recentCard.expanded && recentCard.retryCount > 0; width: parent.width; text: "RETRIES  " + String(recentCard.retryCount); color: Qt.darker(root.contentForeground, 1.5); font.family: root.contentFontFamily; font.pixelSize: Style.font.caption; font.bold: true }
-                    Text { textFormat: Text.PlainText; visible: recentCard.expanded && recentCard.failedItem; width: parent.width; text: String(recentCard.modelData.failure || "SABnzbd reported an unspecified failure"); wrapMode: Text.WordWrap; maximumLineCount: 2; elide: Text.ElideRight; color: Color.urgent; font.family: root.contentFontFamily; font.pixelSize: Style.font.caption }
+                    Text {
+                      textFormat: Text.PlainText;
+                      visible: recentCard.expanded
+                      width: parent.width
+                      text: {
+                        var parts = [String(recentCard.modelData.category || "Uncategorized").toUpperCase(), String(recentCard.modelData.size || "Unknown size")]
+                        if (recentCard.modelData.completed) parts.push(String(recentCard.modelData.completed))
+                        if (recentCard.retryCount > 0) parts.push("RETRIES " + String(recentCard.retryCount))
+                        return parts.join("  ·  ")
+                      }
+                      elide: Text.ElideRight
+                      color: Qt.darker(root.contentForeground, 1.45)
+                      font.family: root.contentFontFamily
+                      font.pixelSize: Style.font.caption
+                      font.bold: true
+                    }
+                    Text { textFormat: Text.PlainText; visible: recentCard.expanded && recentCard.failedItem; width: parent.width; text: String(recentCard.modelData.failure || "SABnzbd reported an unspecified failure"); elide: Text.ElideRight; color: Color.urgent; font.family: root.contentFontFamily; font.pixelSize: Style.font.caption }
                     Text { textFormat: Text.PlainText; visible: recentCard.expanded && recentCard.canOpen; width: parent.width; text: String(recentCard.modelData.storage); elide: Text.ElideMiddle; color: Qt.darker(root.contentForeground, 1.35); font.family: root.contentFontFamily; font.pixelSize: Style.font.caption }
                   }
                   Rectangle {
                     id: retryButton
                     readonly property bool failedItem: recentCard.failedItem
                     readonly property bool canOpen: recentCard.canOpen
-                    width: retryButton.failedItem ? Style.space(78) : Style.space(86); height: Style.space(28); radius: height / 2; anchors.verticalCenter: parent.verticalCenter
+                    width: retryButton.failedItem ? Style.space(70) : Style.space(78); height: Style.space(26); radius: height / 2; anchors.verticalCenter: parent.verticalCenter
                     color: (retryButton.failedItem || retryButton.canOpen) && retryMouse.containsMouse ? Qt.rgba((retryButton.failedItem ? Color.urgent : Color.accent).r, (retryButton.failedItem ? Color.urgent : Color.accent).g, (retryButton.failedItem ? Color.urgent : Color.accent).b, 0.2) : "transparent"
                     border.width: (retryButton.failedItem || retryButton.canOpen) ? Style.spacing.hairline : 0
                     border.color: retryButton.failedItem ? Color.urgent : Color.accent

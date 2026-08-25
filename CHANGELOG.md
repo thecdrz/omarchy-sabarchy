@@ -15,6 +15,7 @@ All notable changes to SABarchy are documented here.
 
 - Bar tooltip summarizes verify/unpack activity and failure counts.
 - Active jobs stay in one list; the status pill tracks SABnzbd stage changes instead of splitting into parallel sections.
+- Failed history rows stay compact when expanded (retry count folded into the meta line).
 - Processing demo fixture shows a verifying job in that single-row flow.
 
 ### Fixed
