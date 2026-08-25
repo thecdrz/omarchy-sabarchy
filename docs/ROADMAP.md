@@ -6,18 +6,18 @@ Living plan for feature and visual work. Update this as items ship or priorities
 
 | Track | Version | Where |
 |-------|---------|-------|
-| **Published (marketplace)** | 0.5.5 | Only public release today |
-| **In development (`main`)** | 0.7.0 | Next marketplace release |
+| **Published (marketplace)** | 0.5.5 | Live listing pending 0.7.0 verification |
+| **Submitted for verify** | 0.7.0 | `main` @ `fd55d6e` — marketplace issue #2290 |
 
 ### On `main` for 0.7.0
 
 - 0.6.0 milestone: notifications, open-folder, disk threshold, `url_base` fix
 - Bar failure indicator and processing-aware tooltips
-- Split verify/unpack processing sections → single active list with stage-colored status pills
+- Single active list with stage-colored status pills
 - Stage color system and expanded history details
 - Notification click opens panel
 
-**Release strategy:** No hotfix rush. Only 0.5.5 is public; ship one substantial 0.7.0 marketplace update.
+**Release strategy:** No hotfix rush. Only 0.5.5 is public until #2290 is approved; ship one substantial 0.7.0 marketplace update.
 
 ---
 
@@ -25,7 +25,7 @@ Living plan for feature and visual work. Update this as items ship or priorities
 
 ### 0.7.0 — Next marketplace release
 
-**Status:** Code complete on `main`; fresh screenshots remain before marketplace submit.
+**Status:** Submitted for marketplace verification ([issue #2290](https://github.com/HANCORE-linux/omarchy-plugin-marketplace/issues/2290)).
 
 | Item | Status |
 |------|--------|
@@ -34,8 +34,8 @@ Living plan for feature and visual work. Update this as items ship or priorities
 | Expanded history details | Done |
 | Notification click opens panel | Done |
 | Stage color system | Done |
-| Fresh marketplace screenshots | Pending |
-| Push + marketplace submit | Pending |
+| Fresh marketplace screenshots | Done |
+| Push + marketplace submit | Submitted (#2290) |
 
 ### 0.6.0 — Development milestone (done)
 

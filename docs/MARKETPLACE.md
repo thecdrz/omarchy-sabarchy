@@ -48,8 +48,9 @@ Existing shots live under `docs/screenshots/`. Overwrite in place when new captu
 - [x] `CHANGELOG.md` has a `[0.7.0]` section
 - [x] Helper tests pass on a clean checkout
 - [x] Fresh screenshots for processing / failure UX (overwrite `docs/screenshots/` as needed)
-- [ ] Fresh `omarchy plugin add … --enable` connects to a default `~/.sabnzbd/sabnzbd.ini` install
+- [x] Fresh `omarchy plugin add … --enable` connects to a default `~/.sabnzbd/sabnzbd.ini` install
 - [x] GitHub release notes pasted from `CHANGELOG.md`
+- [x] Marketplace verify/update submitted ([#2290](https://github.com/HANCORE-linux/omarchy-plugin-marketplace/issues/2290))
 
 ## After publish
 
